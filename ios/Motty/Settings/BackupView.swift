@@ -92,9 +92,15 @@ struct BackupView: View {
                 Text("Restoring replaces the hosts and keys on this iPhone with the file's copy. The current data is kept as config.db.before-restore.")
             }
 
-            Section("Storage") {
-                LabeledContent("Location", value: bridge.dataDirectory?.lastPathComponent ?? "Application Support")
-                Link("Open Files app", destination: URL(string: "shareddocuments://")!)
+            Section {
+                Text("Backups stay in the app's private storage. Use Share to save one in Files, or choose a backup file to restore it here.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                Text("Cloud sync and backups use the desktop version's formats, so hosts, keys and settings carry over.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            } header: {
+                Text("Storage")
             }
         }
         .navigationTitle("Backup")

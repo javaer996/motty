@@ -210,7 +210,8 @@ rectCount × 16 bytes:
 - 等宽字体：SF Mono / Menlo，按 cell 宽度绘制；宽字符占两格。
 - 颜色、粗体、斜体、下划线、反显、光标、选区。
 - 滚动：`term.Scroll` 后拉取快照。
-- 复制：从 `term` 取选区文本；链接：`term.LinksAt`。
+- 复制：长按进入选区，拖动扩展，点浮动复制按钮或键盘条 Copy 复制选中单元格；未选中时复制整屏。
+- 链接：`term.LinksAt`。
 
 ### 5.3 输入
 
@@ -271,6 +272,7 @@ rectCount × 16 bytes:
 - 主机 ID 使用桌面确定性 `catalogIDFor`（address/user/port[/protocol] 的 SHA-256，`host_` + 24 hex），同一服务器在 iOS 与桌面合并为一条。
 - `savedHost` 的全部桌面字段往返保留；保存时对既有 record 做 map 补丁，未知字段不丢。
 - vault 键：`sshkey:<hex>`（值 `{"name","key"}`）、`passphrase:<sshkey ref>`、`aikey:<provider>`、`host:<catalogID>:password|otp`、`webdav:password`、`s3:secret`、`gist:token`、`backup:password`。
+- 私钥可从 Files 导入，也可直接粘贴 OpenSSH/PEM 文本；两种方式都写入 `vault.json`，与桌面版同样加密。
 - 主机密码只存 vault：编辑主机时可输入/删除；主机保存为私钥或 Agent 认证时自动删除旧密码；删除主机同时删除其 password/otp。连接首次出现密码提示且 vault 有对应密码时自动提交，服务器拒绝后删除该密码并改为询问用户；用户在提示中勾选“保存密码”时，仅在认证成功后写入 vault。
 - 启动迁移幂等：旧 `hosts.json` → config.db（ID 改为 catalog ID，冲突加后缀）；旧 `keys/` 文件 → vault；`ai.json` 中的明文 API key → vault。旧文件保留，可回退。
 - 备份：`backup.Seal`（Argon2id + AES-256-GCM，envelope v2，密码 ≥8 字符），文档含 records（含 tombstone）、known_hosts、secrets，排除同步凭据自身。恢复前生成 `config.db.before-restore`。

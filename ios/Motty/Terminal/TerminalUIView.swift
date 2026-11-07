@@ -30,6 +30,16 @@ final class TerminalUIView: UIView, UIKeyInput {
     private var keyBar: KeyBarView?
     private var panRemainder: CGFloat = 0
 
+    private struct CellPosition {
+        var row: Int
+        var column: Int
+    }
+
+    /// A text selection made with a long press, in view cells. The anchor is
+    /// where the press began; the focus follows the finger.
+    private var selectionAnchor: CellPosition?
+    private var selectionFocus: CellPosition?
+
     private let terminalBackground = UIColor(red: 0.05, green: 0.055, blue: 0.075, alpha: 1)
     private let terminalForeground = UIColor(white: 0.88, alpha: 1)
 
@@ -41,6 +51,20 @@ final class TerminalUIView: UIView, UIKeyInput {
         button.layer.cornerRadius = 17
         button.isHidden = true
         button.addTarget(self, action: #selector(jumpToBottom), for: .touchUpInside)
+        return button
+    }()
+
+    /// Appears while a long-press selection exists; tapping it copies the
+    /// selected cells and clears the highlight.
+    private lazy var copySelectionButton: UIButton = {
+        let button = UIButton(type: .system)
+        button.setImage(UIImage(systemName: "doc.on.doc"), for: .normal)
+        button.tintColor = terminalForeground
+        button.backgroundColor = UIColor.black.withAlphaComponent(0.55)
+        button.layer.cornerRadius = 17
+        button.isHidden = true
+        button.accessibilityLabel = AppLanguage.localized("copy")
+        button.addTarget(self, action: #selector(copySelectionTapped), for: .touchUpInside)
         return button
     }()
 
@@ -58,8 +82,16 @@ final class TerminalUIView: UIView, UIKeyInput {
         let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
         pan.maximumNumberOfTouches = 1
         addGestureRecognizer(pan)
+        let longPress = UILongPressGestureRecognizer(target: self, action: #selector(handleLongPress(_:)))
+        longPress.minimumPressDuration = 0.35
+        longPress.cancelsTouchesInView = true
+        addGestureRecognizer(longPress)
+        // A drag scrolls unless it started as a long press, which extends the
+        // selection instead.
+        pan.require(toFail: longPress)
 
         addSubview(bottomButton)
+        addSubview(copySelectionButton)
 
         keyBar = KeyBarView()
         keyBar?.onKey = { [weak self] data in
@@ -112,6 +144,7 @@ final class TerminalUIView: UIView, UIKeyInput {
         currentRows = rows
         bridge?.resize(sessionID: sessionID, cols: cols, rows: rows)
         bottomButton.frame = CGRect(x: bounds.width - 48, y: 8, width: 34, height: 34)
+        copySelectionButton.frame = CGRect(x: bounds.width - 48, y: 50, width: 34, height: 34)
     }
 
     // MARK: Scrolling
@@ -120,6 +153,7 @@ final class TerminalUIView: UIView, UIKeyInput {
         switch gesture.state {
         case .began:
             panRemainder = 0
+            clearSelection()
         case .changed:
             panRemainder += gesture.translation(in: self).y
             gesture.setTranslation(.zero, in: self)
@@ -137,9 +171,112 @@ final class TerminalUIView: UIView, UIKeyInput {
         bridge?.scroll(sessionID: sessionID, lines: -snapshot.viewOffset)
     }
 
+    // MARK: Selection
+
+    @objc private func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
+        let point = gesture.location(in: self)
+        switch gesture.state {
+        case .began:
+            guard let position = cellPosition(at: point) else { return }
+            selectionAnchor = position
+            selectionFocus = position
+            setNeedsDisplay()
+            updateOverlayButtons()
+        case .changed:
+            guard selectionAnchor != nil, let position = cellPosition(at: point) else { return }
+            selectionFocus = position
+            setNeedsDisplay()
+        case .ended:
+            guard selectionAnchor != nil else { return }
+            updateOverlayButtons()
+            UISelectionFeedbackGenerator().selectionChanged()
+        case .cancelled, .failed:
+            clearSelection()
+        default:
+            break
+        }
+    }
+
+    /// The grid cell under a touch, clamped to the screen that is displayed.
+    private func cellPosition(at point: CGPoint) -> CellPosition? {
+        guard snapshot.cols > 0, !snapshot.cells.isEmpty else { return nil }
+        let row = min(max(0, Int(point.y / cellHeight)), snapshot.cells.count - 1)
+        let column = min(max(0, Int(point.x / cellWidth)), snapshot.cols - 1)
+        return CellPosition(row: row, column: column)
+    }
+
+    private var selectionRange: (start: CellPosition, end: CellPosition)? {
+        guard let anchor = selectionAnchor, let focus = selectionFocus else { return nil }
+        if anchor.row < focus.row || (anchor.row == focus.row && anchor.column <= focus.column) {
+            return (anchor, focus)
+        }
+        return (focus, anchor)
+    }
+
+    private func clearSelection() {
+        guard selectionAnchor != nil || selectionFocus != nil else { return }
+        selectionAnchor = nil
+        selectionFocus = nil
+        setNeedsDisplay()
+        updateOverlayButtons()
+    }
+
+    private func updateOverlayButtons() {
+        let selecting = selectionRange != nil
+        copySelectionButton.isHidden = !selecting
+        bottomButton.isHidden = selecting || snapshot.viewOffset == 0
+    }
+
+    @objc private func copySelectionTapped() {
+        copySelection()
+    }
+
+    private func selectedText() -> String {
+        guard let range = selectionRange else { return "" }
+        var lines: [String] = []
+        for row in range.start.row...range.end.row {
+            guard row < snapshot.cells.count else { break }
+            let cells = snapshot.cells[row]
+            let first = row == range.start.row ? range.start.column : 0
+            let last = row == range.end.row ? range.end.column : max(0, snapshot.cols - 1)
+            var line = ""
+            var column = first
+            while column <= last {
+                if column < cells.count {
+                    let cell = cells[column]
+                    if cell.flags & 2 == 0 { // a wide tail holds no glyph
+                        if cell.rune != 0, let scalar = UnicodeScalar(cell.rune) {
+                            line.append(Character(scalar))
+                        } else {
+                            line.append(" ")
+                        }
+                    }
+                } else {
+                    line.append(" ")
+                }
+                column += 1
+            }
+            while line.hasSuffix(" ") { line.removeLast() }
+            lines.append(line)
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    private func copySelection() {
+        let text = selectedText()
+        clearSelection()
+        guard !text.isEmpty else { return }
+        UIPasteboard.general.string = text
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+    }
+
     // MARK: Copy
 
     private func copyScreen() {
+        if selectionRange != nil {
+            copySelection()
+            return
+        }
         let text = visibleText()
         guard !text.isEmpty else { return }
         UIPasteboard.general.string = text
@@ -183,7 +320,7 @@ final class TerminalUIView: UIView, UIKeyInput {
             guard let parsed = ScreenSnapshot(data: data) else { return }
             snapshot = parsed
             lastVersion = parsed.version
-            bottomButton.isHidden = parsed.viewOffset == 0
+            updateOverlayButtons()
             setNeedsDisplay()
         } else if count < 0 {
             let needed = -Int(count)
@@ -209,7 +346,25 @@ final class TerminalUIView: UIView, UIKeyInput {
             drawBackgrounds(row, y: y, context: context)
             drawText(row, y: y)
         }
+        drawSelection(context: context)
         drawCursor(snap, context: context)
+    }
+
+    private func drawSelection(context: CGContext) {
+        guard let range = selectionRange else { return }
+        context.setFillColor(UIColor.systemBlue.withAlphaComponent(0.3).cgColor)
+        for row in range.start.row...range.end.row {
+            guard row < snapshot.cells.count else { break }
+            let first = row == range.start.row ? range.start.column : 0
+            let last = row == range.end.row ? range.end.column : max(0, snapshot.cols - 1)
+            guard last >= first else { continue }
+            context.fill(CGRect(
+                x: CGFloat(first) * cellWidth,
+                y: CGFloat(row) * cellHeight,
+                width: CGFloat(last - first + 1) * cellWidth,
+                height: cellHeight
+            ))
+        }
     }
 
     private func drawBackgrounds(_ row: [ScreenSnapshot.Cell], y: CGFloat, context: CGContext) {
@@ -362,6 +517,10 @@ final class TerminalUIView: UIView, UIKeyInput {
     }
 
     @objc private func focus() {
+        if selectionRange != nil {
+            clearSelection()
+            return
+        }
         becomeFirstResponder()
     }
 
@@ -405,7 +564,14 @@ final class TerminalUIView: UIView, UIKeyInput {
         }
         commands.append(UIKeyCommand(input: "[", modifierFlags: .control, action: #selector(controlBracket)))
         commands.append(UIKeyCommand(input: "\\", modifierFlags: .control, action: #selector(controlBackslash)))
+        commands.append(UIKeyCommand(input: "c", modifierFlags: .command, action: #selector(copyCommand)))
         return commands
+    }
+
+    /// A hardware keyboard copies the selection, or the screen when there is
+    /// none, exactly like the key bar's Copy key.
+    @objc private func copyCommand() {
+        copyScreen()
     }
 
     @objc private func keyUp() { sendKey("A") }

@@ -737,6 +737,22 @@
         }
       }
     },
+    "Backups stay in the app's private storage. Use Share to save one in Files, or choose a backup file to restore it here.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "备份保存在 App 的私有存储中。可用“共享”保存到“文件”App，或选择备份文件在此恢复。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "備份儲存在 App 的私有儲存中。可用「共享」儲存到「檔案」App，或選擇備份檔案在此還原。"
+          }
+        }
+      }
+    },
     "Base URL": {
       "localizations": {
         "zh-Hans": {
@@ -1053,6 +1069,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "雲同步"
+          }
+        }
+      }
+    },
+    "Cloud sync and backups use the desktop version's formats, so hosts, keys and settings carry over.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "云同步与备份沿用桌面版的格式，主机、私钥与设置可以直接互通。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "雲端同步與備份沿用桌面版的格式，主機、私密金鑰與設定可以直接互通。"
           }
         }
       }
@@ -2561,6 +2593,38 @@
         }
       }
     },
+    "Key name": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "密钥名称"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "金鑰名稱"
+          }
+        }
+      }
+    },
+    "Keys are stored encrypted in the same format as the desktop app. Remove a key here when no host uses it.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "私钥以与桌面版相同的格式加密存储。不再被任何主机使用时，可在此删除。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "私密金鑰以與桌面版相同的格式加密儲存。不再被任何主機使用時，可在此刪除。"
+          }
+        }
+      }
+    },
     "Keys stay in the app's private storage. Remove a key here when no host uses it.": {
       "localizations": {
         "zh-Hans": {
@@ -3469,6 +3533,38 @@
           "stringUnit": {
             "state": "translated",
             "value": "密碼"
+          }
+        }
+      }
+    },
+    "Paste private key": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "粘贴私钥"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "貼上私密金鑰"
+          }
+        }
+      }
+    },
+    "Paste the whole key, including the BEGIN and END lines.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请粘贴完整私钥，包括 BEGIN 和 END 行。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請貼上完整私密金鑰，包括 BEGIN 和 END 行。"
           }
         }
       }
@@ -4561,6 +4657,22 @@
         }
       }
     },
+    "Server root": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "服务器根目录"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "伺服器根目錄"
+          }
+        }
+      }
+    },
     "Service": {
       "localizations": {
         "zh-Hans": {
@@ -5165,6 +5277,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "監聽器使用代理協議，由用戶端選擇每個目標。"
+          }
+        }
+      }
+    },
+    "The name identifies the key in the host editor.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名称用于在主机编辑器中识别这把密钥。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名稱用於在主機編輯器中識別這把金鑰。"
           }
         }
       }

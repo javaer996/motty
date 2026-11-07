@@ -45,7 +45,7 @@ struct SFTPBrowserView: View {
     var body: some View {
         NavigationStack {
             List {
-                if path != "." && path != "/" {
+                if path != "/" {
                     Button {
                         goUp()
                     } label: {
@@ -90,6 +90,14 @@ struct SFTPBrowserView: View {
                             uploading = true
                         } label: {
                             Label("Upload", systemImage: "arrow.up.doc")
+                        }
+                        if path != "/" {
+                            Button {
+                                path = "/"
+                                load()
+                            } label: {
+                                Label("Server root", systemImage: "internaldrive")
+                            }
                         }
                         Divider()
                         Toggle(isOn: $showHidden) {
@@ -264,7 +272,14 @@ struct SFTPBrowserView: View {
     }
 
     private func goUp() {
-        guard path != "." && path != "/" else { return }
+        guard path != "/" else { return }
+        // The listing starts at the session home (".", which has no parent in
+        // the visible tree); its parent is the server's absolute root.
+        if path == "." {
+            path = "/"
+            load()
+            return
+        }
         let absolute = path.hasPrefix("/")
         var parts = path.split(separator: "/").map(String.init)
         parts.removeLast()

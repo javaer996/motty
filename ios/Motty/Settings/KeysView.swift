@@ -6,6 +6,9 @@ import UniformTypeIdentifiers
 struct KeysView: View {
     @EnvironmentObject private var bridge: MottyBridge
     @State private var importing = false
+    @State private var pasting = false
+    @State private var pastedName = ""
+    @State private var pastedText = ""
     @State private var pendingReplace: PendingImport?
     @State private var importMessage: String?
 
@@ -52,7 +55,7 @@ struct KeysView: View {
                         }
                     }
                 } footer: {
-                    Text("Keys stay in the app's private storage. Remove a key here when no host uses it.")
+                    Text("Keys are stored encrypted in the same format as the desktop app. Remove a key here when no host uses it.")
                 }
             }
 
@@ -62,9 +65,19 @@ struct KeysView: View {
                 } label: {
                     Label("Import private key", systemImage: "square.and.arrow.down")
                 }
+                Button {
+                    pastedName = ""
+                    pastedText = ""
+                    pasting = true
+                } label: {
+                    Label("Paste private key", systemImage: "doc.on.clipboard")
+                }
             }
         }
         .navigationTitle("Private keys")
+        .sheet(isPresented: $pasting) {
+            pasteKeySheet
+        }
         .fileImporter(
             isPresented: $importing,
             allowedContentTypes: [.item],
@@ -83,6 +96,53 @@ struct KeysView: View {
         } message: {
             Text(importMessage ?? "")
         }
+    }
+
+    /// A key can be pasted as text instead of picked from Files, which is how
+    /// most people keep a key on a phone after copying it from a password
+    /// manager or a chat message.
+    private var pasteKeySheet: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("Key name", text: $pastedName)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                } footer: {
+                    Text("The name identifies the key in the host editor.")
+                }
+                Section {
+                    TextEditor(text: $pastedText)
+                        .font(.caption.monospaced())
+                        .frame(minHeight: 220)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                } header: {
+                    Text("Private key")
+                } footer: {
+                    Text("Paste the whole key, including the BEGIN and END lines.")
+                }
+            }
+            .navigationTitle("Paste private key")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { pasting = false }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Import") { importPastedKey() }
+                        .disabled(pastedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+        }
+    }
+
+    private func importPastedKey() {
+        let text = pastedText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        let name = pastedName.trimmingCharacters(in: .whitespaces)
+        pasting = false
+        importKey(name: name.isEmpty ? "pasted-key" : name, data: Data((text + "\n").utf8))
     }
 
     private var replaceBinding: Binding<Bool> {

@@ -72,6 +72,7 @@ struct PromptView: View {
                     bridge.dismissPrompt(prompt)
                 }
                 .buttonStyle(.borderedProminent)
+                .accessibilityIdentifier("prompt.trust")
             }
         }
     }
@@ -94,6 +95,7 @@ struct PromptView: View {
             SecureField("Password", text: $value)
                 .textFieldStyle(.roundedBorder)
                 .textContentType(.password)
+                .accessibilityIdentifier("prompt.password")
         }
         if let attempt = prompt.attempt, attempt > 1 {
             Text("Attempt \(attempt): the previous answer was refused")
@@ -108,6 +110,7 @@ struct PromptView: View {
             Spacer()
             Button("Submit") { submitSecret() }
                 .buttonStyle(.borderedProminent)
+                .accessibilityIdentifier("prompt.submit")
         }
     }
 

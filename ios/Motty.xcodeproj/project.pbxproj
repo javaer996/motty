@@ -10,9 +10,20 @@
 		0000000000000000000000BB /* MottyCore.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0000000000000000000000AF /* MottyCore.xcframework */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		0000000000000000000000CA /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 0000000000000000000000B4 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 0000000000000000000000B0;
+			remoteInfo = Motty;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
 		0000000000000000000000AE /* Motty.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Motty.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		0000000000000000000000AF /* MottyCore.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = MottyCore.xcframework; path = Frameworks/MottyCore.xcframework; sourceTree = "<group>"; };
+		0000000000000000000000C0 /* MottyUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MottyUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -27,6 +38,7 @@
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		0000000000000000000000AD /* Motty */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (0000000000000000000000BC /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = Motty; sourceTree = "<group>"; };
+		0000000000000000000000C1 /* MottyUITests */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (); explicitFileTypes = {}; explicitFolders = (); path = MottyUITests; sourceTree = "<group>"; };
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -38,6 +50,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		0000000000000000000000C4 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -45,6 +64,7 @@
 			isa = PBXGroup;
 			children = (
 				0000000000000000000000AD /* Motty */,
+				0000000000000000000000C1 /* MottyUITests */,
 				0000000000000000000000AC /* Frameworks */,
 				0000000000000000000000AB /* Products */,
 			);
@@ -54,6 +74,7 @@
 			isa = PBXGroup;
 			children = (
 				0000000000000000000000AE /* Motty.app */,
+				0000000000000000000000C0 /* MottyUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -91,6 +112,29 @@
 			productReference = 0000000000000000000000AE /* Motty.app */;
 			productType = "com.apple.product-type.application";
 		};
+		0000000000000000000000C2 /* MottyUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 0000000000000000000000C6 /* Build configuration list for PBXNativeTarget "MottyUITests" */;
+			buildPhases = (
+				0000000000000000000000C3 /* Sources */,
+				0000000000000000000000C4 /* Frameworks */,
+				0000000000000000000000C5 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				0000000000000000000000C9 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				0000000000000000000000C1 /* MottyUITests */,
+			);
+			name = MottyUITests;
+			packageProductDependencies = (
+			);
+			productName = MottyUITests;
+			productReference = 0000000000000000000000C0 /* MottyUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -103,6 +147,10 @@
 				TargetAttributes = {
 					0000000000000000000000B0 = {
 						CreatedOnToolsVersion = 16.0;
+					};
+					0000000000000000000000C2 = {
+						CreatedOnToolsVersion = 16.0;
+						TestTargetID = 0000000000000000000000B0;
 					};
 				};
 			};
@@ -123,6 +171,7 @@
 			projectRoot = "";
 			targets = (
 				0000000000000000000000B0 /* Motty */,
+				0000000000000000000000C2 /* MottyUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -135,10 +184,24 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		0000000000000000000000C5 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		0000000000000000000000B1 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		0000000000000000000000C3 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -255,6 +318,40 @@
 			};
 			name = Release;
 		};
+		0000000000000000000000C7 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = M4ANQ9MU7S;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 0.3.4;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.motty.app.uitests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = Motty;
+			};
+			name = Debug;
+		};
+		0000000000000000000000C8 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = M4ANQ9MU7S;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 0.3.4;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.motty.app.uitests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = Motty;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -276,7 +373,24 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		0000000000000000000000C6 /* Build configuration list for PBXNativeTarget "MottyUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				0000000000000000000000C7 /* Debug */,
+				0000000000000000000000C8 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 /* End XCConfigurationList section */
+
+/* Begin PBXTargetDependency section */
+		0000000000000000000000C9 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 0000000000000000000000B0 /* Motty */;
+			targetProxy = 0000000000000000000000CA /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 	};
 	rootObject = 0000000000000000000000B4 /* Project object */;
 }

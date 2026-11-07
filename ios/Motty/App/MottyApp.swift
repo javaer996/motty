@@ -23,7 +23,12 @@ struct MottyApp: App {
         let content = RootView()
             .environmentObject(bridge)
             .preferredColorScheme(.dark)
-            .onAppear { bridge.start() }
+            .onAppear {
+                bridge.start()
+                #if DEBUG
+                UITestSupport.seedIfRequested()
+                #endif
+            }
         if let locale = (AppLanguage(rawValue: language) ?? .system).locale {
             content.environment(\.locale, locale)
         } else {

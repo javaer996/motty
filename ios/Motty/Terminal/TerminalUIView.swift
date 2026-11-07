@@ -55,6 +55,19 @@ final class TerminalUIView: UIView, UIKeyInput {
     private var selectionAnchor: CellPosition?
     private var selectionFocus: CellPosition?
 
+    #if DEBUG
+    private var scrollProbeView: ScrollProbeAccessibilityView?
+    /// A command typed into the shell as soon as the first prompt appears.
+    /// UI tests use it to fill the scrollback without needing keyboard focus.
+    private lazy var autoTypeCommand: String? = {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard let index = arguments.firstIndex(of: "-MottyUITestAutoType"),
+              index + 1 < arguments.count else { return nil }
+        return arguments[index + 1]
+    }()
+    private var autoTypeSent = false
+    #endif
+
     private let terminalBackground = UIColor(red: 0.05, green: 0.055, blue: 0.075, alpha: 1)
     private let terminalForeground = UIColor(white: 0.88, alpha: 1)
 
@@ -107,6 +120,20 @@ final class TerminalUIView: UIView, UIKeyInput {
 
         addSubview(bottomButton)
         addSubview(copySelectionButton)
+
+        #if DEBUG
+        if ScrollLatencyProbe.shared.enabled {
+            let probe = ScrollProbeAccessibilityView(frame: CGRect(x: 0, y: 0, width: 44, height: 44))
+            probe.accessibilityIdentifier = "scrollProbe"
+            probe.accessibilityLabel = "scrollProbe"
+            probe.isUserInteractionEnabled = false
+            probe.isOpaque = false
+            probe.backgroundColor = .clear
+            probe.summary = { [weak self] in self?.scrollProbeSummary ?? "" }
+            addSubview(probe)
+            scrollProbeView = probe
+        }
+        #endif
 
         keyBar = KeyBarView()
         keyBar?.onKey = { [weak self] data in
@@ -174,6 +201,9 @@ final class TerminalUIView: UIView, UIKeyInput {
     @objc private func handlePan(_ gesture: TerminalScrollPanGestureRecognizer) {
         switch gesture.state {
         case .began:
+            #if DEBUG
+            ScrollLatencyProbe.shared.panHandler(at: CACurrentMediaTime())
+            #endif
             beginScroll()
             // The recognizer only fires after a couple of points of motion;
             // count that movement too so the content does not sit still until
@@ -181,9 +211,16 @@ final class TerminalUIView: UIView, UIKeyInput {
             scrollDistance += gesture.translation(in: self).y
             gesture.setTranslation(.zero, in: self)
             clearSelection()
+            // Paint from the touch handler instead of waiting for the next
+            // display-link tick: the idle link runs at 60 Hz, and one frame of
+            // delay is exactly what makes the start of a drag feel detached.
+            commitScrollTarget()
+            setNeedsDisplay()
         case .changed:
             scrollDistance += gesture.translation(in: self).y
             gesture.setTranslation(.zero, in: self)
+            commitScrollTarget()
+            setNeedsDisplay()
         case .ended:
             isPanning = false
             let velocity = gesture.velocity(in: self).y
@@ -198,6 +235,17 @@ final class TerminalUIView: UIView, UIKeyInput {
         default:
             break
         }
+    }
+
+    /// Ask the core for the newest whole-line offset without waiting for the
+    /// next display-link tick. Repeated targets are dropped, so a drag sends
+    /// at most one request per crossed line.
+    private func commitScrollTarget() {
+        guard scrollActive else { return }
+        let target = settleTarget ?? targetScrollOffset
+        guard target != requestedScrollOffset else { return }
+        bridge?.scrollTo(sessionID: sessionID, offset: target)
+        requestedScrollOffset = target
     }
 
     private func beginScroll() {
@@ -465,11 +513,7 @@ final class TerminalUIView: UIView, UIKeyInput {
         // touch samples arrived. The serial core queue therefore never builds
         // a backlog of obsolete scroll positions.
         if scrollActive {
-            let target = settleTarget ?? targetScrollOffset
-            if target != requestedScrollOffset {
-                bridge?.scrollTo(sessionID: sessionID, offset: target)
-                requestedScrollOffset = target
-            }
+            commitScrollTarget()
         }
 
         var snapshotChanged = false
@@ -483,6 +527,12 @@ final class TerminalUIView: UIView, UIKeyInput {
                 lastVersion = parsed.version
                 updateOverlayButtons()
                 snapshotChanged = true
+                #if DEBUG
+                if parsed.viewOffset != 0 {
+                    ScrollLatencyProbe.shared.coreAck(at: CACurrentMediaTime())
+                }
+                sendAutoTypeIfReady()
+                #endif
             }
         } else if count < 0 {
             let needed = -Int(count)
@@ -504,7 +554,47 @@ final class TerminalUIView: UIView, UIKeyInput {
             lastVisualOffset = visual
             setNeedsDisplay()
         }
+        #if DEBUG
+        if scrollActive && isPanning {
+            // How much of the finger's movement the 6-line clamp is hiding.
+            let gap = desiredScrollOffset - CGFloat(snapshot.viewOffset)
+            let lagLines = abs(gap * cellHeight - visual) / cellHeight
+            ScrollLatencyProbe.shared.frame(
+                visualOffset: visual,
+                lagLines: lagLines,
+                at: CACurrentMediaTime()
+            )
+        }
+        #endif
     }
+
+    #if DEBUG
+    private var scrollProbeSummary: String {
+        let probe = ScrollLatencyProbe.shared.summary
+        let visual = String(format: "%.1f", lastVisualOffset)
+        return probe
+            + " sb=\(snapshot.scrollback)"
+            + " off=\(snapshot.viewOffset)"
+            + " vis=\(visual)"
+            + " pan=\(isPanning ? 1 : 0)"
+            + " active=\(scrollActive ? 1 : 0)"
+    }
+
+    /// Fill the scrollback once the shell has drawn its first prompt. Waiting
+    /// for a non-empty screen means the command never lands in a password
+    /// prompt or before the remote shell is ready.
+    private func sendAutoTypeIfReady() {
+        guard !autoTypeSent, let command = autoTypeCommand else { return }
+        let hasText = snapshot.cells.contains { row in
+            row.contains { $0.rune != 0 }
+        }
+        guard hasText else { return }
+        autoTypeSent = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+            self?.send(Data((command + "\r").utf8))
+        }
+    }
+    #endif
 
     // MARK: Drawing
 
@@ -517,6 +607,9 @@ final class TerminalUIView: UIView, UIKeyInput {
         let snap = snapshot
         guard !snap.cells.isEmpty else { return }
         let offset = visualScrollOffset()
+        #if DEBUG
+        ScrollLatencyProbe.shared.draw(visualOffset: offset, at: CACurrentMediaTime())
+        #endif
         for (rowIndex, row) in snap.cells.enumerated() {
             let y = pixelAligned(CGFloat(rowIndex) * cellHeight + offset)
             guard y + cellHeight >= rect.minY, y <= rect.maxY else { continue }
@@ -807,7 +900,10 @@ final class TerminalUIView: UIView, UIKeyInput {
 /// text lagging behind the finger. The recognizer exposes the same
 /// translation/velocity calls the scroll handler already used.
 final class TerminalScrollPanGestureRecognizer: UIGestureRecognizer {
-    private let startThreshold: CGFloat = 3
+    /// One point of finger travel is enough to start scrolling. At the slow
+    /// beginning of a deliberate swipe, three points can take ~100 ms, which
+    /// reads as the terminal ignoring the finger.
+    private let startThreshold: CGFloat = 1
     private var startPoint: CGPoint = .zero
     private var currentPoint: CGPoint = .zero
     private var lastPoint: CGPoint = .zero
@@ -827,6 +923,10 @@ final class TerminalScrollPanGestureRecognizer: UIGestureRecognizer {
         lastTimestamp = touch.timestamp
         translationOffset = .zero
         currentVelocity = .zero
+        #if DEBUG
+        ScrollLatencyProbe.shared.touchDown(at: touch.timestamp)
+        ScrollLatencyProbe.shared.touchDelivered(at: CACurrentMediaTime())
+        #endif
     }
 
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
@@ -837,6 +937,12 @@ final class TerminalScrollPanGestureRecognizer: UIGestureRecognizer {
         }
         guard state == .possible || state == .began || state == .changed else { return }
         let point = touch.location(in: view)
+        #if DEBUG
+        ScrollLatencyProbe.shared.touchMoved(
+            eventTimestamp: touch.timestamp,
+            at: CACurrentMediaTime()
+        )
+        #endif
         let elapsed = touch.timestamp - lastTimestamp
         if elapsed > 0 {
             currentVelocity = CGPoint(
@@ -851,7 +957,11 @@ final class TerminalScrollPanGestureRecognizer: UIGestureRecognizer {
         if state == .possible {
             let dx = point.x - startPoint.x
             let dy = point.y - startPoint.y
-            guard hypot(dx, dy) >= startThreshold else { return }
+            let distance = hypot(dx, dy)
+            guard distance >= startThreshold else { return }
+            #if DEBUG
+            ScrollLatencyProbe.shared.panBegan(at: CACurrentMediaTime(), distance: distance)
+            #endif
             state = .began
         } else {
             state = .changed

@@ -213,11 +213,14 @@ rectCount × 16 bytes:
 - 颜色、粗体、斜体、下划线、反显、光标、选区。
 - 滚动：手指位移按像素跟手，每帧向核心提交最新的绝对行偏移（`sessions.scrollTo`），
   快照与目标行之间的零头作为绘制平移，因此不会逐行跳动；抬手后带减速惯性，靠近
-  两端时有阻尼回弹。滚动期间 CADisplayLink 提升到屏幕最大刷新率（ProMotion 120 Hz），
-  空闲时降到 60 Hz。背景色按同色连续段合并填充，减少绘制调用。拖动由自定义
-  `TerminalScrollPanGestureRecognizer` 识别：手指移动约 3 pt 即进入 `.began`
-  （系统 `UIPanGestureRecognizer` 的触摸容差约 10 pt），并把这 3 pt 计入位移；
-  不等待长按识别失败，因此第一次滑动既没有 0.35 秒延迟，也没有起步死区。长按仍
+  两端时有阻尼回弹。滚动期间 CADisplayLink 提升到屏幕最大刷新率（ProMotion 120 Hz，
+  `Info.plist` 里的 `CADisableMinimumFrameDurationOnPhone` 必须为 true，否则 iPhone
+  会被限制在 60 Hz），空闲时降到 60 Hz。背景色按同色连续段合并填充，减少绘制调用。拖动由自定义
+  `TerminalScrollPanGestureRecognizer` 识别：手指移动约 1 pt 即进入 `.began`
+  （系统 `UIPanGestureRecognizer` 的触摸容差约 10 pt），并把这 1 pt 计入位移；
+  不等待长按识别失败，因此滑动既没有 0.35 秒延迟，也没有起步死区。
+  `.began`/`.changed` 里直接 `setNeedsDisplay()` 并提交最新的绝对行偏移，
+  不必等下一次 CADisplayLink 回调，慢速起手的第一帧也不会落后于手指。长按仍
   用于扩展选区。
 - 复制：长按进入选区，拖动扩展，点浮动复制按钮或键盘条 Copy 复制选中单元格；未选中时复制整屏。
 - 链接：`term.LinksAt`。

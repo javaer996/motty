@@ -8,6 +8,9 @@
 
 /* Begin PBXBuildFile section */
 		0000000000000000000000BB /* MottyCore.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0000000000000000000000AF /* MottyCore.xcframework */; };
+		0000000000000000000000DB /* MottyLiveActivity.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 0000000000000000000000D0 /* MottyLiveActivity.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		0000000000000000000000DD /* SessionActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0000000000000000000000DF /* SessionActivityAttributes.swift */; };
+		0000000000000000000000DE /* SessionActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0000000000000000000000DF /* SessionActivityAttributes.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -18,12 +21,35 @@
 			remoteGlobalIDString = 0000000000000000000000B0;
 			remoteInfo = Motty;
 		};
+		0000000000000000000000DA /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 0000000000000000000000B4 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 0000000000000000000000D2;
+			remoteInfo = MottyLiveActivity;
+		};
 /* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		0000000000000000000000DC /* Embed App Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				0000000000000000000000DB /* MottyLiveActivity.appex in Embed App Extensions */,
+			);
+			name = "Embed App Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		0000000000000000000000AE /* Motty.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Motty.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		0000000000000000000000AF /* MottyCore.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = MottyCore.xcframework; path = Frameworks/MottyCore.xcframework; sourceTree = "<group>"; };
 		0000000000000000000000C0 /* MottyUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MottyUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		0000000000000000000000D0 /* MottyLiveActivity.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = MottyLiveActivity.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		0000000000000000000000DF /* SessionActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionActivityAttributes.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -34,11 +60,19 @@
 			);
 			target = 0000000000000000000000B0 /* Motty */;
 		};
+		0000000000000000000000E1 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 0000000000000000000000D2 /* MottyLiveActivity */;
+		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		0000000000000000000000AD /* Motty */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (0000000000000000000000BC /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = Motty; sourceTree = "<group>"; };
-		0000000000000000000000C1 /* MottyUITests */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (); explicitFileTypes = {}; explicitFolders = (); path = MottyUITests; sourceTree = "<group>"; };
+		0000000000000000000000C1 /* MottyUITests */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = MottyUITests; sourceTree = "<group>"; };
+		0000000000000000000000D1 /* MottyLiveActivity */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (0000000000000000000000E1 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = MottyLiveActivity; sourceTree = "<group>"; };
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -57,6 +91,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		0000000000000000000000D4 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -65,6 +106,8 @@
 			children = (
 				0000000000000000000000AD /* Motty */,
 				0000000000000000000000C1 /* MottyUITests */,
+				0000000000000000000000D1 /* MottyLiveActivity */,
+				0000000000000000000000E2 /* Shared */,
 				0000000000000000000000AC /* Frameworks */,
 				0000000000000000000000AB /* Products */,
 			);
@@ -75,8 +118,17 @@
 			children = (
 				0000000000000000000000AE /* Motty.app */,
 				0000000000000000000000C0 /* MottyUITests.xctest */,
+				0000000000000000000000D0 /* MottyLiveActivity.appex */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		0000000000000000000000E2 /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				0000000000000000000000DF /* SessionActivityAttributes.swift */,
+			);
+			path = Shared;
 			sourceTree = "<group>";
 		};
 		0000000000000000000000AC /* Frameworks */ = {
@@ -97,10 +149,12 @@
 				0000000000000000000000B1 /* Sources */,
 				0000000000000000000000B2 /* Frameworks */,
 				0000000000000000000000B3 /* Resources */,
+				0000000000000000000000DC /* Embed App Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				0000000000000000000000D9 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				0000000000000000000000AD /* Motty */,
@@ -135,6 +189,28 @@
 			productReference = 0000000000000000000000C0 /* MottyUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
+		0000000000000000000000D2 /* MottyLiveActivity */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 0000000000000000000000D6 /* Build configuration list for PBXNativeTarget "MottyLiveActivity" */;
+			buildPhases = (
+				0000000000000000000000D3 /* Sources */,
+				0000000000000000000000D4 /* Frameworks */,
+				0000000000000000000000D5 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				0000000000000000000000D1 /* MottyLiveActivity */,
+			);
+			name = MottyLiveActivity;
+			packageProductDependencies = (
+			);
+			productName = MottyLiveActivity;
+			productReference = 0000000000000000000000D0 /* MottyLiveActivity.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -151,6 +227,9 @@
 					0000000000000000000000C2 = {
 						CreatedOnToolsVersion = 16.0;
 						TestTargetID = 0000000000000000000000B0;
+					};
+					0000000000000000000000D2 = {
+						CreatedOnToolsVersion = 16.0;
 					};
 				};
 			};
@@ -172,6 +251,7 @@
 			targets = (
 				0000000000000000000000B0 /* Motty */,
 				0000000000000000000000C2 /* MottyUITests */,
+				0000000000000000000000D2 /* MottyLiveActivity */,
 			);
 		};
 /* End PBXProject section */
@@ -191,6 +271,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		0000000000000000000000D5 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -198,6 +285,15 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				0000000000000000000000DD /* SessionActivityAttributes.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		0000000000000000000000D3 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0000000000000000000000DE /* SessionActivityAttributes.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -209,6 +305,19 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		0000000000000000000000C9 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 0000000000000000000000B0 /* Motty */;
+			targetProxy = 0000000000000000000000CA /* PBXContainerItemProxy */;
+		};
+		0000000000000000000000D9 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 0000000000000000000000D2 /* MottyLiveActivity */;
+			targetProxy = 0000000000000000000000DA /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		0000000000000000000000B7 /* Debug */ = {
@@ -352,6 +461,58 @@
 			};
 			name = Release;
 		};
+		0000000000000000000000D7 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = M4ANQ9MU7S;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = MottyLiveActivity/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 0.3.4;
+				LIVE_ACTIVITY_BUNDLE_ID = dev.motty.app.liveactivity;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(LIVE_ACTIVITY_BUNDLE_ID)";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		0000000000000000000000D8 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = M4ANQ9MU7S;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = MottyLiveActivity/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 0.3.4;
+				LIVE_ACTIVITY_BUNDLE_ID = dev.motty.app.liveactivity;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(LIVE_ACTIVITY_BUNDLE_ID)";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -382,15 +543,16 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-/* End XCConfigurationList section */
-
-/* Begin PBXTargetDependency section */
-		0000000000000000000000C9 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = 0000000000000000000000B0 /* Motty */;
-			targetProxy = 0000000000000000000000CA /* PBXContainerItemProxy */;
+		0000000000000000000000D6 /* Build configuration list for PBXNativeTarget "MottyLiveActivity" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				0000000000000000000000D7 /* Debug */,
+				0000000000000000000000D8 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
 		};
-/* End PBXTargetDependency section */
+/* End XCConfigurationList section */
 	};
 	rootObject = 0000000000000000000000B4 /* Project object */;
 }

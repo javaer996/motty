@@ -21,6 +21,9 @@ struct Host: Codable, Identifiable, Hashable {
     var clipboard: Bool?
     var console: Bool?
     var scale: Double?
+    /// The outbound proxy this host's traffic leaves through, nil for a direct
+    /// connection. Its password is kept in the vault, never here.
+    var proxy: HostProxy?
     var createdAt: Int64?
     var updatedAt: Int64?
     // Desktop catalog fields this app does not edit yet. They are kept so a
@@ -68,6 +71,36 @@ struct Host: Codable, Identifiable, Hashable {
 
     var target: String {
         port == Host.defaultPort(for: protocolName) ? address : "\(address):\(port)"
+    }
+}
+
+/// A host's outbound proxy. The kinds are the desktop application's strings,
+/// so a host edited on either side means the same thing.
+struct HostProxy: Codable, Hashable {
+    static let socks5 = "socks5"
+    static let http = "http"
+
+    var kind: String = ""
+    var address: String = ""
+    var user: String?
+    var bypass: String?
+
+    init(kind: String = "", address: String = "", user: String? = nil, bypass: String? = nil) {
+        self.kind = kind
+        self.address = address
+        self.user = user
+        self.bypass = bypass
+    }
+
+    var enabled: Bool { !kind.isEmpty }
+
+    /// What the form shows: "Off" or "SOCKS5 proxy.example.com:1080".
+    var summary: String {
+        switch kind {
+        case HostProxy.socks5: return "SOCKS5 \(address)"
+        case HostProxy.http: return "HTTP \(address)"
+        default: return ""
+        }
     }
 }
 
@@ -160,9 +193,11 @@ struct KeysResult: Decodable {
 
 // MARK: - Assistant
 
-/// Matches `mobilecore.aiSettings`. The key is stored in the app's private
-/// container; a later milestone moves it to the Keychain.
-struct AISettings: Codable, Equatable {
+/// One configured assistant endpoint. Matches `mobilecore.aiProvider`. The key
+/// is stored in the app's private container.
+struct AIProvider: Codable, Equatable, Identifiable, Hashable {
+    var id: String = ""
+    var name: String?
     var provider: String = "openai"
     var baseUrl: String?
     var apiKey: String?
@@ -171,6 +206,38 @@ struct AISettings: Codable, Equatable {
     var temperature: Double?
     var system: String?
     var mode: String = "agent"
+
+    /// A name to show in lists: the user's label, else the protocol.
+    var displayName: String {
+        if let name, !name.trimmingCharacters(in: .whitespaces).isEmpty { return name }
+        return kindTitle
+    }
+
+    var kindTitle: String {
+        switch provider {
+        case "anthropic": return "Anthropic"
+        case "responses": return "OpenAI Responses"
+        default: return "OpenAI compatible"
+        }
+    }
+
+    /// The line under the name in the provider list.
+    var summary: String {
+        var parts: [String] = [kindTitle]
+        if !model.trimmingCharacters(in: .whitespaces).isEmpty { parts.append(model) }
+        return parts.joined(separator: " · ")
+    }
+}
+
+/// Matches `mobilecore.aiSettings`: the configured providers and the active
+/// one. Switching providers never loses the others' keys.
+struct AISettings: Codable, Equatable {
+    var providers: [AIProvider] = []
+    var currentId: String?
+
+    var current: AIProvider? {
+        providers.first { $0.id == currentId } ?? providers.first
+    }
 }
 
 struct AISendResult: Decodable {
@@ -679,7 +746,7 @@ struct SessionLogRecord: Decodable, Identifiable, Hashable {
         case "failed": return "Failed"
         case "interrupted": return "Interrupted"
         case "tracking-stopped": return "Stopped"
-        default: return status
+        default: return "Unknown"
         }
     }
 }
@@ -701,10 +768,6 @@ struct SessionLogEvent: Decodable, Identifiable, Hashable {
 
     var id: String { "\(kind)-\(at)-\(attempt ?? 0)" }
     var date: Date { Date(timeIntervalSince1970: TimeInterval(at) / 1000) }
-
-    var title: String {
-        kind.replacingOccurrences(of: "-", with: " ").capitalized
-    }
 }
 
 struct SessionLogEventsResult: Decodable {
@@ -743,6 +806,7 @@ struct CompletionCandidate: Decodable, Identifiable, Hashable {
         switch kind {
         case "option": return "switch.2"
         case "value": return "textformat"
+        case "combo": return "wand.and.stars"
         default: return "terminal"
         }
     }

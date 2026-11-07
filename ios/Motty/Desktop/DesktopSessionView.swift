@@ -14,6 +14,7 @@ struct DesktopSessionView: View {
     @State private var desktop: DesktopState?
     @State private var errorText: String?
     @State private var password = ""
+    @State private var rememberPassword = true
     @State private var heldKeys: Set<String> = []
     @State private var viewSize = CGSize.zero
     @State private var resizeTask: Task<Void, Never>?
@@ -241,6 +242,8 @@ struct DesktopSessionView: View {
                     .textContentType(.password)
                     .frame(maxWidth: 320)
                     .onSubmit { submitPassword() }
+                Toggle("Remember password", isOn: $rememberPassword)
+                    .frame(maxWidth: 320)
                 HStack {
                     Button("Cancel") { disconnect() }
                     Button("Connect") { submitPassword() }
@@ -290,7 +293,11 @@ struct DesktopSessionView: View {
 
     private func submitPassword() {
         guard let id = desktop?.id, !password.isEmpty else { return }
-        bridge.desktopAnswer(desktopID: id, kind: "password", value: password)
+        // The core writes the password only after the server accepts it, so a
+        // refusal never overwrites the saved one.
+        bridge.desktopAnswer(
+            desktopID: id, kind: "password", value: password, save: rememberPassword
+        )
         password = ""
     }
 

@@ -113,6 +113,8 @@ func completionKindName(kind completion.Kind) string {
 		return "option"
 	case completion.KindValue:
 		return "value"
+	case completion.KindCombo:
+		return "combo"
 	default:
 		return "command"
 	}
@@ -141,9 +143,9 @@ func (s *session) currentLine() string {
 	return line
 }
 
-// candidates merges the host's remembered commands with the built-in catalog,
-// exactly like the desktop completion popover.
-func (a *App) candidates(host, line string) ([]completionCandidateJSON, bool) {
+// candidates merges the curated parameter combinations, the host's remembered
+// commands, and the built-in catalog. Descriptions come back in locale.
+func (a *App) candidates(host, line, locale string) ([]completionCandidateJSON, bool) {
 	out := make([]completionCandidateJSON, 0, 16)
 	seen := make(map[string]struct{}, 16)
 	add := func(candidate completion.Candidate) {
@@ -157,13 +159,22 @@ func (a *App) candidates(host, line string) ([]completionCandidateJSON, bool) {
 		out = append(out, completionCandidateJSON{
 			Text:   candidate.Text,
 			Insert: candidate.Insert,
-			Desc:   candidate.Desc,
+			Desc:   completion.LocalizeDesc(candidate.Desc, locale),
 			Kind:   completionKindName(candidate.Kind),
 		})
 	}
+	// The curated combinations answer "what do people usually type here".
+	for _, candidate := range completion.Combos(line, completion.MaxCandidates) {
+		add(candidate)
+	}
 	if line != "" && !cmdhistory.Secret(line) {
 		for _, rest := range cmdhistory.SuggestAll(a.history.entries(host), line, 5) {
-			add(completion.Candidate{Text: line + rest, Insert: rest, Kind: completion.KindCommand})
+			add(completion.Candidate{
+				Text:   line + rest,
+				Insert: rest,
+				Desc:   "From your history",
+				Kind:   completion.KindCommand,
+			})
 		}
 	}
 	suppressed := false
@@ -251,6 +262,7 @@ func (a *App) callHistory(method string, params json.RawMessage) (bool, any, err
 		var request struct {
 			SessionID uint32 `json:"sessionId"`
 			Line      string `json:"line"`
+			Locale    string `json:"locale"`
 		}
 		if err := decodeParams(params, &request); err != nil {
 			return true, nil, err
@@ -268,7 +280,7 @@ func (a *App) callHistory(method string, params json.RawMessage) (bool, any, err
 		if strings.ContainsAny(line, "\r\n") {
 			return true, map[string]any{"line": "", "candidates": []completionCandidateJSON{}, "suppressed": true}, nil
 		}
-		candidates, suppressed := a.candidates(target.historyKey(), line)
+		candidates, suppressed := a.candidates(target.historyKey(), line, request.Locale)
 		result := map[string]any{
 			"line":       line,
 			"candidates": candidates,

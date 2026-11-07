@@ -16,17 +16,27 @@ enum UITestSupport {
         let user = arguments[index + 4]
         let password = arguments[index + 5]
 
+        // A stable id replaces the fixture on every launch. Without it the
+        // store derives a new id per launch and leaves a stale, passwordless
+        // host behind that older tests would match first.
         var host = Host.empty()
+        host.id = "motty-ui-fixture"
         host.label = label
         host.address = address
         host.port = port
         host.user = user
         host.auth = "password"
-        // `hosts.save` derives the id from address/user/port, so seeding on
-        // every launch replaces the previous fixture instead of duplicating it.
-        MottyBridge.shared.saveHost(host) { result in
-            guard case .success(let saved) = result else { return }
-            MottyBridge.shared.setHostPassword(id: saved.id, password: password)
+        MottyBridge.shared.refreshHosts {
+            // Drop fixtures left by earlier launches before saving the new
+            // one. The serial bridge queue keeps these ordered ahead of the
+            // save below.
+            for stale in MottyBridge.shared.hosts where stale.label.hasPrefix("motty-ui-fixture") {
+                MottyBridge.shared.deleteHost(stale)
+            }
+            MottyBridge.shared.saveHost(host) { result in
+                guard case .success(let saved) = result else { return }
+                MottyBridge.shared.setHostPassword(id: saved.id, password: password)
+            }
         }
     }
 }

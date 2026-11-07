@@ -95,6 +95,11 @@ type desktopManager struct {
 	sessions *sessionManager
 	logs     *logManager
 	pins     *rdp.Pins
+	// data holds the vault the desktop passwords live in, under the same
+	// names the desktop application uses.
+	data *dataStore
+	// changed asks for a debounced sync after a secret was written or dropped.
+	changed func()
 
 	mu     sync.Mutex
 	nextID uint32
@@ -102,12 +107,13 @@ type desktopManager struct {
 	closed bool
 }
 
-func newDesktopManager(dataDir string, sessions *sessionManager, logs *logManager, events *eventQueue) *desktopManager {
+func newDesktopManager(dataDir string, data *dataStore, sessions *sessionManager, logs *logManager, events *eventQueue) *desktopManager {
 	return &desktopManager{
 		events:   events,
 		sessions: sessions,
 		logs:     logs,
 		pins:     rdp.NewPins(filepath.Join(dataDir, "rdp_certificates")),
+		data:     data,
 		items:    map[uint32]*desktopSession{},
 	}
 }
@@ -293,6 +299,12 @@ type desktopSession struct {
 	// pumpErr is set when the picture cannot be held; run reports it instead
 	// of treating the cancelled context as a user close.
 	pumpErr error
+	// filledSecret is the vault name whose password was answered without
+	// asking, so a refusal can drop the stale value.
+	filledSecret string
+	// pendingSecret is the password the user asked to keep, written only once
+	// the server accepts it.
+	pendingSecret string
 
 	answers  chan desktopAnswer
 	frame    *desktopFrame
@@ -439,6 +451,7 @@ func (d *desktopSession) connect() (desktop.Session, error) {
 	for {
 		sess, err := d.openSession()
 		if err == nil {
+			d.commitPassword()
 			return sess, nil
 		}
 		if d.ctx.Err() != nil {
@@ -447,6 +460,7 @@ func (d *desktopSession) connect() (desktop.Session, error) {
 		if !isDesktopAuthFailure(err) {
 			return nil, err
 		}
+		d.forgetRefusedPassword()
 	}
 }
 
@@ -464,6 +478,17 @@ func (d *desktopSession) openSession() (desktop.Session, error) {
 		AskPassword: d.askPassword,
 		Notify:      d.wakeup,
 		Clipboard:   host.ClipboardEnabled(),
+	}
+	if host.ViaSSH == "" {
+		// Without a tunnel the desktop can leave through the host's own proxy,
+		// the same one its terminal would use.
+		proxy, err := hostProxyFor(d.manager.data, host)
+		if err != nil {
+			return nil, err
+		}
+		if proxy != nil && proxy.Configured() {
+			dial = proxyDialer(proxy)
+		}
 	}
 	if host.ViaSSH != "" {
 		tunnel, conn, err := d.manager.tunnel(host.ViaSSH)
@@ -502,15 +527,30 @@ func (d *desktopSession) askPassword() (string, error) {
 		return "", context.Canceled
 	}
 	d.attempt++
+	attempt := d.attempt
 	d.asking = desktopPassword
 	d.phase = desktopPassword
 	d.errText = ""
-	attempt := d.attempt
 	d.mu.Unlock()
-	d.emit()
-	d.emitPrompt("password", map[string]any{"attempt": attempt})
 	d.manager.logs.event(d.logKey(), sessionlog.EventAuthenticating)
 
+	// The first attempt answers from the vault, so a password saved here (or
+	// arriving through a backup or a sync) needs no typing. A refused one comes
+	// back as a second attempt, which is always left to the user.
+	if attempt == 1 {
+		if value, name, ok := d.savedPassword(); ok {
+			d.mu.Lock()
+			d.asking = ""
+			d.phase = desktopConnecting
+			d.filledSecret = name
+			d.mu.Unlock()
+			d.emit()
+			return value, nil
+		}
+	}
+
+	d.emit()
+	d.emitPrompt("password", map[string]any{"attempt": attempt})
 	select {
 	case answer := <-d.answers:
 		d.mu.Lock()
@@ -518,9 +558,64 @@ func (d *desktopSession) askPassword() (string, error) {
 		d.phase = desktopConnecting
 		d.mu.Unlock()
 		d.emit()
+		if answer.save && answer.value != "" && d.host.ID != "" {
+			d.mu.Lock()
+			d.pendingSecret = answer.value
+			d.mu.Unlock()
+		}
 		return answer.value, nil
 	case <-d.ctx.Done():
 		return "", d.ctx.Err()
+	}
+}
+
+// savedPassword is the password the vault holds for this host, under the
+// desktop's name so both versions share one.
+func (d *desktopSession) savedPassword() (string, string, bool) {
+	if d.host.ID == "" || d.manager == nil || d.manager.data == nil {
+		return "", "", false
+	}
+	name := hostSecretName(d.host.ID, hostPasswordPart)
+	value, found, err := d.manager.data.secretGet(name)
+	if err != nil || !found || value == "" {
+		return "", "", false
+	}
+	return value, name, true
+}
+
+// commitPassword writes a password the server just accepted.
+func (d *desktopSession) commitPassword() {
+	d.mu.Lock()
+	value := d.pendingSecret
+	d.pendingSecret = ""
+	d.filledSecret = ""
+	d.mu.Unlock()
+	if value == "" || d.host.ID == "" || d.manager == nil || d.manager.data == nil {
+		return
+	}
+	if err := d.manager.data.secretSet(hostSecretName(d.host.ID, hostPasswordPart), value); err != nil {
+		return
+	}
+	if d.manager.changed != nil {
+		d.manager.changed()
+	}
+}
+
+// forgetRefusedPassword drops a saved password the server has just refused, so
+// the next connection asks instead of repeating the stale answer.
+func (d *desktopSession) forgetRefusedPassword() {
+	d.mu.Lock()
+	name := d.filledSecret
+	d.filledSecret = ""
+	d.mu.Unlock()
+	if name == "" || d.manager == nil || d.manager.data == nil {
+		return
+	}
+	if err := d.manager.data.secretDelete(name); err != nil {
+		return
+	}
+	if d.manager.changed != nil {
+		d.manager.changed()
 	}
 }
 

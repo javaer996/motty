@@ -15,6 +15,7 @@ struct MottyApp: App {
                 bridge.pollEvents()
                 bridge.syncOnForeground()
             }
+            BackgroundSessionKeeper.shared.setBackground(phase == .background)
         }
     }
 
@@ -25,6 +26,8 @@ struct MottyApp: App {
             .preferredColorScheme(.dark)
             .onAppear {
                 bridge.start()
+                SessionLiveActivityManager.shared.start()
+                BackgroundSessionKeeper.shared.start()
                 #if DEBUG
                 UITestSupport.seedIfRequested()
                 #endif

@@ -241,8 +241,8 @@ func TestLegacyFilesMigrateIntoTheSharedStore(t *testing.T) {
 
 	// The assistant key moved out of ai.json and into the vault.
 	settings := openAISettingsStore(data)
-	if settings.get().APIKey != "sk-old" {
-		t.Fatalf("assistant key = %q", settings.get().APIKey)
+	if current, _ := settings.get().current(); current.APIKey != "sk-old" {
+		t.Fatalf("assistant key = %q", current.APIKey)
 	}
 	file, err := os.ReadFile(filepath.Join(dir, "ai.json"))
 	if err != nil {

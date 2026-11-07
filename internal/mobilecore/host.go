@@ -35,6 +35,23 @@ var defaultPorts = map[string]uint16{
 	ProtocolRDP: 3389,
 }
 
+// Proxy kinds a saved host can dial its destination through. They are the
+// desktop's strings, so a host written there means the same thing here.
+const (
+	ProxySOCKS5 = "socks5"
+	ProxyHTTP   = "http"
+)
+
+// HostProxy is a host's outbound proxy, without its password: the password
+// lives in the vault (see hostProxyPasswordSecret) and travels with a backup or
+// a sync.
+type HostProxy struct {
+	Kind    string `json:"kind"`
+	Address string `json:"address,omitempty"`
+	User    string `json:"user,omitempty"`
+	Bypass  string `json:"bypass,omitempty"`
+}
+
 // Host is one saved destination. The fields mirror the desktop catalog where
 // they exist, so a later import/export can share a file format.
 type Host struct {
@@ -64,9 +81,13 @@ type Host struct {
 	Console bool `json:"console,omitempty"`
 	// Scale is the display scale an RDP server should draw at (0 and 1 are
 	// both 100%).
-	Scale     float64 `json:"scale,omitempty"`
-	CreatedAt int64   `json:"createdAt,omitempty"`
-	UpdatedAt int64   `json:"updatedAt,omitempty"`
+	Scale float64 `json:"scale,omitempty"`
+	// Proxy is the outbound proxy this host's traffic leaves through, nil for a
+	// direct connection. There is no global proxy on a phone, so a host either
+	// carries one or goes direct.
+	Proxy     *HostProxy `json:"proxy,omitempty"`
+	CreatedAt int64      `json:"createdAt,omitempty"`
+	UpdatedAt int64      `json:"updatedAt,omitempty"`
 
 	// The fields below are the desktop catalog's; this app keeps them so a host
 	// written there survives a round trip through this one.
@@ -125,6 +146,7 @@ func (h Host) Normalized() Host {
 	if h.Tags == nil {
 		h.Tags = []string{}
 	}
+	h.Proxy = normalizeHostProxy(h.Proxy)
 	if h.IsDesktop() {
 		if h.Clipboard == nil {
 			enabled := true
@@ -166,6 +188,35 @@ func (h Host) Validate() error {
 		// VNC has no account; RDP accepts an empty one and asks on connect.
 	default:
 		return errorf(CodeBadRequest, "unknown protocol %q", h.Protocol)
+	}
+	if h.Proxy != nil {
+		switch h.Proxy.Kind {
+		case ProxySOCKS5, ProxyHTTP:
+		default:
+			return errorf(CodeBadRequest, "unknown proxy kind %q", h.Proxy.Kind)
+		}
+		if h.Proxy.Address == "" {
+			return errorf(CodeBadRequest, "a proxy address is required")
+		}
+	}
+	return nil
+}
+
+// normalizeHostProxy trims a saved proxy and drops one of an unknown kind. An
+// empty kind means no proxy at all. A missing address is kept so Validate can
+// report it instead of the proxy silently disappearing.
+func normalizeHostProxy(proxy *HostProxy) *HostProxy {
+	if proxy == nil {
+		return nil
+	}
+	copy := *proxy
+	copy.Kind = strings.ToLower(strings.TrimSpace(copy.Kind))
+	copy.Address = strings.TrimSpace(copy.Address)
+	copy.User = strings.TrimSpace(copy.User)
+	copy.Bypass = strings.TrimSpace(copy.Bypass)
+	switch copy.Kind {
+	case ProxySOCKS5, ProxyHTTP:
+		return &copy
 	}
 	return nil
 }

@@ -83,13 +83,17 @@ final class MottyBridge: ObservableObject, @unchecked Sendable {
 
     struct EmptyParams: Encodable {}
 
-    func refreshHosts() {
+    func refreshHosts(completion: (() -> Void)? = nil) {
         queue.async {
             do {
                 let result: HostsResult = try self.callSync("hosts.list", params: EmptyParams())
-                DispatchQueue.main.async { self.hosts = result.hosts }
+                DispatchQueue.main.async {
+                    self.hosts = result.hosts
+                    completion?()
+                }
             } catch {
                 self.publish(error)
+                DispatchQueue.main.async { completion?() }
             }
         }
     }
@@ -131,12 +135,19 @@ final class MottyBridge: ObservableObject, @unchecked Sendable {
     }
 
     /// Whether the host has a password in the vault. The value itself is never
-    /// sent back to the interface.
-    func hostPasswordStatus(id: String, completion: @escaping (Bool) -> Void) {
-        struct Params: Encodable { let id: String }
+    /// sent back to the interface. `kind` is "proxy" for the outbound proxy's
+    /// password and empty for the one the server asks for.
+    func hostPasswordStatus(id: String, kind: String = "", completion: @escaping (Bool) -> Void) {
+        struct Params: Encodable {
+            let id: String
+            let kind: String?
+        }
         queue.async {
             do {
-                let status: PasswordStatus = try self.callSync("hosts.passwordStatus", params: Params(id: id))
+                let status: PasswordStatus = try self.callSync(
+                    "hosts.passwordStatus",
+                    params: Params(id: id, kind: kind.isEmpty ? nil : kind)
+                )
                 DispatchQueue.main.async { completion(status.saved) }
             } catch {
                 DispatchQueue.main.async { completion(false) }
@@ -148,18 +159,20 @@ final class MottyBridge: ObservableObject, @unchecked Sendable {
         id: String,
         password: String,
         remove: Bool = false,
+        kind: String = "",
         completion: ((Error?) -> Void)? = nil
     ) {
         struct Params: Encodable {
             let id: String
             let password: String
             let remove: Bool
+            let kind: String?
         }
         queue.async {
             do {
                 let _: PasswordStatus = try self.callSync(
                     "hosts.password",
-                    params: Params(id: id, password: password, remove: remove)
+                    params: Params(id: id, password: password, remove: remove, kind: kind.isEmpty ? nil : kind)
                 )
                 DispatchQueue.main.async { completion?(nil) }
             } catch {
@@ -286,10 +299,10 @@ final class MottyBridge: ObservableObject, @unchecked Sendable {
 
     /// Lists models for the settings currently on screen. The draft is not
     /// saved: this lets the form test a provider or key the user just typed.
-    func loadAIModels(_ settings: AISettings, completion: @escaping (Result<[String], Error>) -> Void) {
+    func loadAIModels(_ provider: AIProvider, completion: @escaping (Result<[String], Error>) -> Void) {
         queue.async {
             do {
-                let result: AIModelsResult = try self.callSync("ai.models", params: settings)
+                let result: AIModelsResult = try self.callSync("ai.models", params: provider)
                 DispatchQueue.main.async { completion(.success(result.models)) }
             } catch {
                 self.publish(error)
@@ -1538,16 +1551,18 @@ final class MottyBridge: ObservableObject, @unchecked Sendable {
     struct CompletionParams: Encodable {
         let sessionId: UInt32
         let line: String?
+        let locale: String?
     }
 
     func complete(
         sessionID: UInt32,
         line: String? = nil,
+        locale: String? = nil,
         completion: @escaping (Result<CompletionResult, Error>) -> Void
     ) {
         callOnMain(
             "completion.complete",
-            params: CompletionParams(sessionId: sessionID, line: line)
+            params: CompletionParams(sessionId: sessionID, line: line, locale: locale)
         ) { (result: Result<CompletionResult, Error>) in
             completion(result)
         }

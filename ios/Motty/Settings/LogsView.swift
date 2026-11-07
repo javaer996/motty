@@ -167,7 +167,7 @@ struct LogsView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-                Text(subtitle(record))
+                subtitle(record)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -185,14 +185,17 @@ struct LogsView: View {
         .padding(.vertical, 2)
     }
 
-    private func subtitle(_ record: SessionLogRecord) -> String {
-        var parts: [String] = []
-        if let address = record.address, !address.isEmpty { parts.append(address) }
-        parts.append(relative(record.startedDate))
-        if let reason = record.reason, !reason.isEmpty {
-            parts.append(reason.replacingOccurrences(of: "-", with: " "))
-        }
-        return parts.joined(separator: " · ")
+    /// Address, relative time, and the reason code, each localised. Built from
+    /// `Text` rather than `String` so the reason runs through the string
+    /// catalog instead of being shown verbatim.
+    private func subtitle(_ record: SessionLogRecord) -> Text {
+        var parts: [Text] = []
+        if let address = record.address, !address.isEmpty { parts.append(Text(address)) }
+        parts.append(Text(relative(record.startedDate)))
+        if let reason = record.reasonText { parts.append(Text(reason)) }
+        var text = parts[0]
+        for part in parts.dropFirst() { text = text + Text(" · ") + part }
+        return text
     }
 
     private func statusIcon(_ record: SessionLogRecord) -> String {
@@ -335,14 +338,15 @@ private struct LogDetailView: View {
                     if let address = record.address, !address.isEmpty {
                         LabeledContent("Address", value: address)
                     }
+                    LabeledContent("Protocol") { Text(record.protocolText) }
                     LabeledContent("Started", value: time.string(from: record.startedDate))
                     if let ended = record.endedDate {
                         LabeledContent("Ended at", value: time.string(from: ended))
                     }
                     LabeledContent("Duration") { Text(record.localizedDuration) }
                     LabeledContent("Status") { Text(LocalizedStringKey(record.statusText)) }
-                    if let reason = record.reason, !reason.isEmpty {
-                        LabeledContent("Reason", value: reason.replacingOccurrences(of: "-", with: " "))
+                    if let reason = record.reasonText {
+                        LabeledContent("Reason") { Text(reason) }
                     }
                 }
                 Section("Timeline") {
@@ -353,8 +357,22 @@ private struct LogDetailView: View {
                             .foregroundStyle(.secondary)
                     }
                     ForEach(events) { event in
-                        HStack {
-                            Text(event.title)
+                        HStack(alignment: .top) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                HStack(spacing: 6) {
+                                    Text(event.localizedTitle)
+                                    if let attempt = event.attempt {
+                                        Text("attempt \(attempt)")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                                if let reason = event.reasonText {
+                                    Text(reason)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
                             Spacer()
                             Text(time.string(from: event.date))
                                 .font(.caption.monospaced())
@@ -436,5 +454,73 @@ private extension SessionLogRecord {
         if hours > 0 { return "\(hours)h \(minutes)m" }
         if minutes > 0 { return "\(minutes)m \(seconds % 60)s" }
         return "\(seconds)s"
+    }
+
+    /// The machine-readable protocol from the core, in the UI language.
+    var protocolText: LocalizedStringKey {
+        switch `protocol` {
+        case "vnc": return "VNC"
+        case "rdp": return "RDP"
+        case "telnet": return "Telnet"
+        case "serial": return "Serial"
+        case "local": return "Local"
+        default: return "SSH"
+        }
+    }
+
+    /// The reason code the core recorded, in the UI language.
+    var reasonText: LocalizedStringKey? {
+        localizedLogReason(reason)
+    }
+}
+
+private extension SessionLogEvent {
+    /// One step of the journey, in the UI language. The core reports these as
+    /// kebab-case codes, so the raw value only survives for a code this build
+    /// does not know.
+    var localizedTitle: LocalizedStringKey {
+        switch kind {
+        case "connected": return "Connected"
+        case "shell-opened": return "Shell opened"
+        case "shell-failed": return "Shell failed"
+        case "disconnected": return "Disconnected"
+        case "failed": return "Failed"
+        case "reconnect-scheduled": return "Reconnect scheduled"
+        case "reconnect-started": return "Reconnect started"
+        case "reconnect-exhausted": return "Reconnect exhausted"
+        case "reconnect-canceled": return "Reconnect canceled"
+        case "tracking-stopped": return "Tracking stopped"
+        case "started": return "Session started"
+        case "host-key-prompt": return "Host key prompt"
+        case "authenticating": return "Authenticating"
+        case "finished": return "Session finished"
+        case "recovered": return "Session recovered"
+        default:
+            return LocalizedStringKey(kind.replacingOccurrences(of: "-", with: " ").capitalized)
+        }
+    }
+
+    var reasonText: LocalizedStringKey? {
+        localizedLogReason(reason)
+    }
+}
+
+/// Shared by records and events: both carry the same reason codes.
+private func localizedLogReason(_ reason: String?) -> LocalizedStringKey? {
+    guard let reason, !reason.isEmpty else { return nil }
+    switch reason {
+    case "user-closed": return "User closed"
+    case "connect-failed": return "Connect failed"
+    case "auth-failed": return "Auth failed"
+    case "host-key-rejected": return "Host key rejected"
+    case "canceled": return "Canceled"
+    case "timeout": return "Timeout"
+    case "network-lost": return "Network lost"
+    case "shell-failed": return "Shell failed"
+    case "tracking-off": return "Tracking off"
+    case "process-restart": return "Process restart"
+    case "unknown": return "Unknown"
+    default:
+        return LocalizedStringKey(reason.replacingOccurrences(of: "-", with: " "))
     }
 }

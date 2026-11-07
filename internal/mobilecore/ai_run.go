@@ -78,7 +78,7 @@ type aiState struct {
 	sessions *sessionManager
 	backend  *aiBackend
 	events   *eventQueue
-	provider func(aiSettings) (llm.Provider, error)
+	provider func(aiProvider) (llm.Provider, error)
 }
 
 func newAIState(data *dataStore, sessions *sessionManager, events *eventQueue) *aiState {
@@ -92,7 +92,7 @@ func newAIState(data *dataStore, sessions *sessionManager, events *eventQueue) *
 		sessions: sessions,
 		backend:  &aiBackend{manager: sessions},
 		events:   events,
-		provider: func(settings aiSettings) (llm.Provider, error) {
+		provider: func(settings aiProvider) (llm.Provider, error) {
 			return settings.provider()
 		},
 	}
@@ -104,9 +104,12 @@ func (s *aiState) send(sessionID uint32, userText string) (uint64, error) {
 	if userText == "" {
 		return 0, errorf(CodeBadRequest, "a message is required")
 	}
-	settings, err := s.settings.get().normalized()
-	if err != nil {
-		return 0, err
+	settings, ok := s.settings.get().current()
+	if !ok {
+		return 0, errorf(CodeBadRequest, "configure an assistant provider first")
+	}
+	if settings.Model == "" {
+		return 0, errorf(CodeBadRequest, "a model is required")
 	}
 	session, ok := s.sessions.get(sessionID)
 	if !ok {
@@ -147,7 +150,7 @@ func (s *aiState) send(sessionID uint32, userText string) (uint64, error) {
 	return run.id, nil
 }
 
-func (s *aiState) execute(run *aiRun, settings aiSettings, provider llm.Provider, target gate.SessionInfo, history []llm.Message, userText string) {
+func (s *aiState) execute(run *aiRun, settings aiProvider, provider llm.Provider, target gate.SessionInfo, history []llm.Message, userText string) {
 	defer func() {
 		run.cancel()
 		s.mu.Lock()

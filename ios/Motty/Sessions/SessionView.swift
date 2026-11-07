@@ -20,7 +20,12 @@ struct SessionView: View {
         NavigationStack {
             ZStack(alignment: .bottom) {
                 TerminalView(sessionID: sessionID)
-                    .ignoresSafeArea(edges: .bottom)
+                    // Extend under the home indicator but not under the
+                    // keyboard: ignoring only `.container` lets SwiftUI apply
+                    // its keyboard inset, so the terminal shrinks and the pty
+                    // is resized instead of hiding the last lines behind the
+                    // input method.
+                    .ignoresSafeArea(.container, edges: .bottom)
 
                 if let session, !session.isConnected, let text = statusText(session) {
                     statusOverlay(session, text: text)

@@ -11,7 +11,8 @@ final class KeyBarView: UIInputView {
     var onPaste: (() -> Void)?
     var onCopy: (() -> Void)?
 
-    private let keys: [Key] = [
+    /// The keys needed while typing a command.
+    static let essentialKeys: [Key] = [
         Key(title: "esc", bytes: [0x1B]),
         Key(title: "tab", bytes: [0x09]),
         Key(title: "ctrl-c", bytes: [0x03]),
@@ -21,16 +22,37 @@ final class KeyBarView: UIInputView {
         Key(title: "↓", bytes: Array("\u{1B}[B".utf8)),
         Key(title: "→", bytes: Array("\u{1B}[C".utf8)),
         Key(title: "←", bytes: Array("\u{1B}[D".utf8)),
+    ]
+
+    /// Editing and paging keys, shown in the upper row when there is nothing
+    /// to suggest.
+    static let secondaryKeys: [Key] = [
         Key(title: "home", bytes: Array("\u{1B}[H".utf8)),
         Key(title: "end", bytes: Array("\u{1B}[F".utf8)),
         Key(title: "pgup", bytes: Array("\u{1B}[5~".utf8)),
         Key(title: "pgdn", bytes: Array("\u{1B}[6~".utf8)),
+        Key(title: "ctrl-a", bytes: [0x01]),
+        Key(title: "ctrl-e", bytes: [0x05]),
+        Key(title: "ctrl-k", bytes: [0x0B]),
+        Key(title: "ctrl-u", bytes: [0x15]),
+        Key(title: "ctrl-w", bytes: [0x17]),
+        Key(title: "ctrl-r", bytes: [0x12]),
+        Key(title: "ctrl-l", bytes: [0x0C]),
     ]
 
-    init() {
+    private let keys: [Key]
+    private let includesClipboard: Bool
+
+    init(keys: [Key], includesClipboard: Bool) {
+        self.keys = keys
+        self.includesClipboard = includesClipboard
         super.init(frame: CGRect(x: 0, y: 0, width: 0, height: 44), inputViewStyle: .keyboard)
         autoresizingMask = .flexibleWidth
         build()
+    }
+
+    convenience init() {
+        self.init(keys: KeyBarView.essentialKeys, includesClipboard: true)
     }
 
     required init?(coder: NSCoder) {
@@ -55,14 +77,16 @@ final class KeyBarView: UIInputView {
             button.addTarget(self, action: #selector(keyTapped(_:)), for: .touchUpInside)
             stack.addArrangedSubview(button)
         }
-        let paste = makeButton(title: AppLanguage.localized("paste"))
-        paste.tag = -1
-        paste.addTarget(self, action: #selector(pasteTapped), for: .touchUpInside)
-        stack.addArrangedSubview(paste)
-        let copy = makeButton(title: AppLanguage.localized("copy"))
-        copy.tag = -2
-        copy.addTarget(self, action: #selector(copyTapped), for: .touchUpInside)
-        stack.addArrangedSubview(copy)
+        if includesClipboard {
+            let paste = makeButton(title: AppLanguage.localized("paste"))
+            paste.tag = -1
+            paste.addTarget(self, action: #selector(pasteTapped), for: .touchUpInside)
+            stack.addArrangedSubview(paste)
+            let copy = makeButton(title: AppLanguage.localized("copy"))
+            copy.tag = -2
+            copy.addTarget(self, action: #selector(copyTapped), for: .touchUpInside)
+            stack.addArrangedSubview(copy)
+        }
 
         NSLayoutConstraint.activate([
             scroll.leadingAnchor.constraint(equalTo: leadingAnchor),

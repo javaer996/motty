@@ -26,6 +26,9 @@ final class ScrollLatencyProbe {
     private var ackTime: CFTimeInterval = 0
     private var frames = 0
     private var visualDelta: CGFloat = 0
+    private var firstDrawVisual: CGFloat = 0
+    private var lastVisual: CGFloat = 0
+    private var maxVisual: CGFloat = 0
     private var maxLagLines: CGFloat = 0
     private var clampedFrames = 0
     private var pending = false
@@ -47,6 +50,9 @@ final class ScrollLatencyProbe {
         ackTime = 0
         frames = 0
         visualDelta = 0
+        firstDrawVisual = 0
+        lastVisual = 0
+        maxVisual = 0
         maxLagLines = 0
         clampedFrames = 0
         pending = true
@@ -90,6 +96,8 @@ final class ScrollLatencyProbe {
                 visualDelta = visualOffset
             }
         }
+        lastVisual = visualOffset
+        maxVisual = max(maxVisual, abs(visualOffset))
         maxLagLines = max(maxLagLines, abs(lagLines))
         if lagLines > 0.01 {
             clampedFrames += 1
@@ -100,6 +108,7 @@ final class ScrollLatencyProbe {
     func draw(visualOffset: CGFloat, at time: CFTimeInterval) {
         guard enabled, pending, beganTime > 0, firstDrawTime == 0, visualOffset != 0 else { return }
         firstDrawTime = time
+        firstDrawVisual = visualOffset
     }
 
     /// The first snapshot whose whole-line offset moved, proving the core
@@ -138,6 +147,9 @@ final class ScrollLatencyProbe {
             + " draw=\(milliseconds(from: firstDrawTime))"
             + " ack=\(milliseconds(from: ackTime))"
             + " frames=\(frames) delta=\(delta)"
+            + " drawVisual=\(String(format: "%.1f", firstDrawVisual))"
+            + " lastVisual=\(String(format: "%.1f", lastVisual))"
+            + " maxVisual=\(String(format: "%.1f", maxVisual))"
             + " maxLag=\(String(format: "%.1f", maxLagLines))"
             + " clampFrames=\(clampedFrames)"
     }

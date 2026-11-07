@@ -121,7 +121,7 @@ void  MottyFree(char *s);
 | `logs.list` / `logs.events` / `logs.stats` / `logs.favorite` / `logs.delete` / `logs.clear` | 会话日志 |
 | `history.list` / `history.delete` / `history.clear` / `completion.complete` | 命令历史与补全 |
 | `desktop.open` / `desktop.close` / `desktop.status` / `desktop.pointer` / `desktop.wheel` / `desktop.key` / `desktop.text` / `desktop.clipboard.get` / `desktop.clipboard.set` / `desktop.answer` / `desktop.resize` / `desktop.active` | VNC/RDP |
-| `ai.settings.get` / `ai.settings.save` / `ai.models` | provider、端点、key、模型、模式 |
+| `ai.settings.get` / `ai.settings.save` / `ai.models` | 供应商列表与当前供应商（端点、key、模型、模式）；`ai.models` 可带未保存的草稿 |
 | `ai.send` / `ai.cancel` / `ai.approve` / `ai.reset` | 对话与审批 |
 | `ai.conversations` / `ai.conversation.get` / `ai.conversation.delete` | 按主机保存的对话历史：列表、打开继续、删除 |
 | `sync.status` / `sync.configure` / `sync.clear` / `sync.test` / `sync.now` / `sync.restore` | 云同步 |
@@ -228,7 +228,15 @@ rectCount × 16 bytes:
 ### 5.3 输入
 
 - 软键盘文本直接 UTF-8 发送到 `sessions.input`。
-- 快捷键条：Esc、Tab、Ctrl、Alt、方向键、PgUp/PgDn、Home/End、粘贴。
+- 快捷键条固定两行 84 pt（`TerminalInputBar`）。下排是输入命令时常用的 Esc、Tab、
+  Ctrl-C/D/Z、方向键与粘贴/复制；上排在没有建议时显示 Home/End、PgUp/PgDn 和
+  readline 的 Ctrl-A/E/K/U/W/R/L。UIKit 只在配件首次展示时读取高度，所以这里不改
+  高度，只交换上排内容，键盘不会跳动。
+- 内联补全：输入停顿 0.22 秒后，`completion.complete` 读取屏幕上的当前命令行，
+  依次合并精选参数组合（`internal/completion/combos.go`）、本机历史与内置目录，
+  描述按界面语言本地化（`internal/completion/localize.go`）。上排变成可横向滚动的
+  建议芯片（命令、描述、将插入的后缀），点按即把后缀发送到 shell；整行恰好是某个
+  组合时不再有候选，上排恢复为按键。
 - 硬件键盘：`UIKeyCommand` 映射到 `term` 的键盘编码（复用桌面键位规则）。
 - 中文 IME：`UITextInput` 组合输入，预编辑文本叠加显示，提交后发送。
 
@@ -257,6 +265,19 @@ rectCount × 16 bytes:
   用户可重新加载后再保存。未保存修改在关闭或下拉时要求确认。
 - 下载仍可从文件菜单、编辑器菜单或二进制回退页触发，并进入传输中心。
 
+### 5.6 远程桌面认证与代理
+
+- 主机模型补齐桌面字段：`protocol`（ssh/vnc/rdp）、`viaSSH`、`clipboard`、`console`、
+  `scale` 与 `proxy`。VNC 允许空用户名；默认端口 VNC 5900、RDP 3389。
+- VNC 密码与 RDP 用户名/密码保存在 vault（`host:<catalogID>:password`，与 SSH 密码
+  同一个键）。连接时先静默使用已保存的凭据；服务器拒绝后删除旧密码并弹出提示。
+  提示中勾选“记住密码”时，只有认证成功后才写入 vault。
+- 出站代理与桌面版同构：`socks5` / `http`，可选用户名、密码与 bypass 列表。代理密码
+  存在 `host-proxy:<catalogID>:<hash>:password`，与桌面备份/同步互通；SSH 会话在
+  `sshconn.Config.Proxy` 中拨号，VNC/RDP 直连时使用同一个 `proxyDialer`。
+- `viaSSH` 指向的 SSH 会话已连接时，桌面流量走该连接的 `DialContext`，不单独拨号；
+  隧道断开则关闭桌面会话。
+
 ## 6. AI 子系统
 
 ### 6.1 复用
@@ -273,7 +294,12 @@ rectCount × 16 bytes:
 `internal/mobilecore`：
 
 - `ai_run.go`：run 生命周期、事件流、取消、审批；`agent.Run` 直接复用。
-- `ai_settings.go`：provider、端点、模型、模式存 `<DataDir>/ai.json`（0600）；API key 只存 vault（`aikey:<provider>`）。
+- `ai_settings.go`：支持同时配置多个供应商（`providers[]` + `currentId`），每个供应商
+  有自己的协议、端点、key、模型、模式与系统提示；列表与当前选择存
+  `<DataDir>/ai.json`（0600），API key 只存 vault（`aikey:<provider id>`）。切换供应商
+  只改 `currentId`，其余供应商的 key 保留。旧版单供应商 `ai.json`（扁平字段）在首次
+  启动时折叠为 id 等于协议名的供应商，因此旧 vault 键无需迁移。删除供应商时同时删除
+  它的 vault key。设置页可以新增、编辑、左滑删除并在“当前供应商”选择器中切换。
 - `ai_backend.go`：`gate.Backend` 实现。`Sessions` / `ReadTerminal` / `Exec` 已接入；
   `Exec` 复用 `internal/ai/capture` 向 shell 注入包装命令并解析结束标记，与桌面一致。
   SFTP 工具随 M3 接入。
@@ -310,7 +336,7 @@ rectCount × 16 bytes:
 | `vault.json` | 加密 secrets；数据密钥存 Keychain（`kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`） |
 | `known_hosts` | OpenSSH known_hosts（`internal/knownhosts`） |
 | `session-logs.db` / `history.db` | 会话日志、命令历史（SQLite） |
-| `ai.json` | provider、模型、端点、模式；API key 不在此文件 |
+| `ai.json` | 供应商列表（协议、端点、模型、模式）与当前供应商；API key 不在此文件 |
 | `ai.db` | 按主机保存的助手对话历史（`internal/ai/store` schema） |
 | `sync.json` | 同步目标、ETag、lastSync；同步凭据不在此文件 |
 | `exports/` | 最近 5 个 `.mottybak` 导出 |
@@ -318,7 +344,7 @@ rectCount × 16 bytes:
 
 - 主机 ID 使用桌面确定性 `catalogIDFor`（address/user/port[/protocol] 的 SHA-256，`host_` + 24 hex），同一服务器在 iOS 与桌面合并为一条。
 - `savedHost` 的全部桌面字段往返保留；保存时对既有 record 做 map 补丁，未知字段不丢。
-- vault 键：`sshkey:<hex>`（值 `{"name","key"}`）、`passphrase:<sshkey ref>`、`aikey:<provider>`、`host:<catalogID>:password|otp`、`webdav:password`、`s3:secret`、`gist:token`、`backup:password`。
+- vault 键：`sshkey:<hex>`（值 `{"name","key"}`）、`passphrase:<sshkey ref>`、`aikey:<provider id>`、`host:<catalogID>:password|otp`、`host-proxy:<catalogID>:<hash>:password`、`webdav:password`、`s3:secret`、`gist:token`、`backup:password`。
 - 私钥可从 Files 导入，也可直接粘贴 OpenSSH/PEM 文本；两种方式都写入 `vault.json`，与桌面版同样加密。
 - 主机密码只存 vault：编辑主机时可输入/删除；主机保存为私钥或 Agent 认证时自动删除旧密码；删除主机同时删除其 password/otp。连接首次出现密码提示且 vault 有对应密码时自动提交，服务器拒绝后删除该密码并改为询问用户；用户在提示中勾选“保存密码”时，仅在认证成功后写入 vault。
 - 启动迁移幂等：旧 `hosts.json` → config.db（ID 改为 catalog ID，冲突加后缀）；旧 `keys/` 文件 → vault；`ai.json` 中的明文 API key → vault。旧文件保留，可回退。

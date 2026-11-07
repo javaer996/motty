@@ -457,3 +457,71 @@ func TestDesktopVNCAsksForPasswordAndRecordsTheSession(t *testing.T) {
 	}
 }
 
+func TestDesktopVNCUsesASavedPasswordWithoutAsking(t *testing.T) {
+	server := startVNCTestServer(t, true)
+	app, err := Start(Config{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Close()
+	host := saveDesktopTestHost(t, app, server.port, ProtocolVNC)
+
+	saved := callApp(t, app, "hosts.password", `{"id":`+quoteJSON(host.ID)+`,"password":"secret"}`)
+	if !saved.OK {
+		t.Fatalf("hosts.password failed: %+v", saved.Error)
+	}
+
+	opened := callApp(t, app, "desktop.open", `{"hostId":`+quoteJSON(host.ID)+`}`)
+	if !opened.OK {
+		t.Fatalf("desktop.open failed: %+v", opened.Error)
+	}
+	var result struct {
+		Desktop desktopState `json:"desktop"`
+	}
+	if err := json.Unmarshal(opened.Result, &result); err != nil {
+		t.Fatal(err)
+	}
+	// A prompt would leave the session waiting for an answer; reaching
+	// connected proves the vault answered instead.
+	waitDesktopState(t, app, result.Desktop.ID, desktopConnected)
+}
+
+func TestDesktopVNCWritesThePasswordOnlyAfterTheServerAcceptsIt(t *testing.T) {
+	server := startVNCTestServer(t, true)
+	app, err := Start(Config{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Close()
+	host := saveDesktopTestHost(t, app, server.port, ProtocolVNC)
+	name := hostSecretName(host.ID, hostPasswordPart)
+
+	opened := callApp(t, app, "desktop.open", `{"hostId":`+quoteJSON(host.ID)+`}`)
+	if !opened.OK {
+		t.Fatalf("desktop.open failed: %+v", opened.Error)
+	}
+	var result struct {
+		Desktop desktopState `json:"desktop"`
+	}
+	if err := json.Unmarshal(opened.Result, &result); err != nil {
+		t.Fatal(err)
+	}
+	event := pollEvent(t, app, "desktop.prompt")
+	if event["kind"] != "password" {
+		t.Fatalf("prompt = %+v", event)
+	}
+	waitDesktopState(t, app, result.Desktop.ID, desktopPassword)
+	if _, found, _ := app.data.secretGet(name); found {
+		t.Fatal("the password was written before the server accepted it")
+	}
+
+	answered := callApp(t, app, "desktop.answer",
+		`{"id":`+strconv.Itoa(int(result.Desktop.ID))+`,"kind":"password","value":"secret","save":true}`)
+	if !answered.OK {
+		t.Fatalf("desktop.answer failed: %+v", answered.Error)
+	}
+	waitDesktopState(t, app, result.Desktop.ID, desktopConnected)
+	if value, found, err := app.data.secretGet(name); err != nil || !found || value != "secret" {
+		t.Fatalf("vault password = %q, %v, %v", value, found, err)
+	}
+}

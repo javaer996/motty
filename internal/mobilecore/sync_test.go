@@ -271,8 +271,8 @@ func TestSyncMergesHostsAndSecrets(t *testing.T) {
 	if len(keyList.Keys) != 1 || keyList.Keys[0].Name != "id_test" {
 		t.Fatalf("second device keys = %+v", keyList.Keys)
 	}
-	if got := second.ai.settings.get().APIKey; got != "sk-shared" {
-		t.Fatalf("second device assistant key = %q", got)
+	if got, _ := second.ai.settings.get().current(); got.APIKey != "sk-shared" {
+		t.Fatalf("second device assistant key = %q", got.APIKey)
 	}
 
 	// A deletion travels as a tombstone.

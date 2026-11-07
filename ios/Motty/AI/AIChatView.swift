@@ -16,7 +16,8 @@ struct AIChatView: View {
     }
 
     private var configured: Bool {
-        !bridge.aiSettings.model.trimmingCharacters(in: .whitespaces).isEmpty
+        guard let provider = bridge.aiSettings.current else { return false }
+        return !provider.model.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
     /// True while a run is in flight but it has not started streaming an

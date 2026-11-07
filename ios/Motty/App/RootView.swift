@@ -33,6 +33,7 @@ struct RootView: View {
                     Button { showingSettings = true } label: {
                         Image(systemName: "gearshape")
                     }
+                    .accessibilityIdentifier("settings")
                 }
                 ToolbarItem(placement: .topBarLeading) {
                     Button { showingForwards = true } label: {

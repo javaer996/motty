@@ -29,6 +29,23 @@ func passphraseSecretName(identity string) string {
 	return "passphrase:" + identity
 }
 
+// hostSecretFor names the vault entry one of a host's secrets lives under.
+// kind is "" (or "login") for the password the server asks for, and "proxy"
+// for the outbound proxy's.
+func hostSecretFor(host Host, kind string) (string, error) {
+	switch kind {
+	case "", "login":
+		return hostSecretName(host.ID, hostPasswordPart), nil
+	case "proxy":
+		name := hostProxyPasswordSecret(host.ID, host.Proxy)
+		if name == "" {
+			return "", errorf(CodeBadRequest, "the host has no proxy login to save a password for")
+		}
+		return name, nil
+	}
+	return "", errorf(CodeBadRequest, "unknown secret kind %q", kind)
+}
+
 // isPasswordQuestion reports a single secret the server names as a password.
 // A one-time code or an unknown secret question is not one: filling a saved
 // password into it would only be refused.

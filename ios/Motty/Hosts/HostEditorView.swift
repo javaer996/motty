@@ -8,6 +8,9 @@ struct HostEditorView: View {
     @State private var password = ""
     @State private var passwordSaved = false
     @State private var removePassword = false
+    @State private var proxyPassword = ""
+    @State private var proxyPasswordSaved = false
+    @State private var removeProxyPassword = false
     @State private var errorMessage: String?
 
     init(host: Host) {
@@ -70,6 +73,17 @@ struct HostEditorView: View {
                             Text("The account may be left empty. The certificate is confirmed the first time you connect.")
                         }
                     }
+                    Section {
+                        passwordFields
+                    } header: {
+                        Text("Authentication")
+                    } footer: {
+                        if removePassword {
+                            Text("The saved password is removed when you save.")
+                        } else {
+                            Text("Saved in the encrypted vault and used automatically when the server asks. Leave it empty to keep the current one.")
+                        }
+                    }
                 } else {
                     Section {
                         Picker("Mode", selection: optional(\.auth)) {
@@ -93,23 +107,7 @@ struct HostEditorView: View {
                             }
                         }
                         if wantsPassword {
-                            SecureField(
-                                passwordSaved ? "Saved password (type to replace)" : "Password (optional)",
-                                text: $password
-                            )
-                            .textContentType(.password)
-                            .onChange(of: password) { _, value in
-                                if !value.isEmpty { removePassword = false }
-                            }
-                            if passwordSaved {
-                                Button(
-                                    removePassword ? "Keep the saved password" : "Remove the saved password",
-                                    role: removePassword ? nil : .destructive
-                                ) {
-                                    removePassword.toggle()
-                                    if removePassword { password = "" }
-                                }
-                            }
+                            passwordFields
                         }
                     } header: {
                         Text("Authentication")
@@ -134,6 +132,60 @@ struct HostEditorView: View {
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
                     }
+                }
+                Section {
+                    Picker("Proxy", selection: proxyKindBinding) {
+                        Text("Direct connection").tag("")
+                        Text("SOCKS5").tag(HostProxy.socks5)
+                        Text("HTTP CONNECT").tag(HostProxy.http)
+                    }
+                    if let proxy = host.proxy, proxy.enabled {
+                        TextField("Proxy address", text: proxyBinding(\.address))
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                        TextField("Proxy user (optional)", text: proxyOptionalBinding(\.user))
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                        if proxy.user?.isEmpty == false {
+                            SecureField(
+                                proxyPasswordSaved ? "Saved proxy password (type to replace)" : "Proxy password (optional)",
+                                text: $proxyPassword
+                            )
+                            .textContentType(.password)
+                            .onChange(of: proxyPassword) { _, value in
+                                if !value.isEmpty { removeProxyPassword = false }
+                            }
+                            if proxyPasswordSaved {
+                                Button(
+                                    removeProxyPassword ? "Keep the saved proxy password" : "Remove the saved proxy password",
+                                    role: removeProxyPassword ? nil : .destructive
+                                ) {
+                                    removeProxyPassword.toggle()
+                                    if removeProxyPassword { proxyPassword = "" }
+                                }
+                            }
+                        }
+                    }
+                } header: {
+                    Text("Outbound proxy")
+                } footer: {
+                    if host.proxy?.enabled == true {
+                        if host.proxy?.user?.isEmpty != false {
+                            Text("Set a proxy user to be able to save its password.")
+                        } else if removeProxyPassword {
+                            Text("The saved proxy password is removed when you save.")
+                        } else {
+                            Text("The proxy carries this host's first connection. Its password is kept in the vault and used automatically.")
+                        }
+                    } else {
+                        Text("A direct connection does not use a proxy.")
+                    }
+                }
+                .onChange(of: host.proxy) { _, _ in
+                    // The saved password belongs to a kind, address and user;
+                    // editing them makes the old one unreachable.
+                    proxyPasswordSaved = false
+                    removeProxyPassword = false
                 }
             }
             .navigationTitle(host.id.isEmpty ? "New host" : "Edit host")
@@ -163,10 +215,35 @@ struct HostEditorView: View {
         !host.isDesktop && (authMode.isEmpty || authMode == "key")
     }
 
-    /// A saved password belongs to Automatic and Password; Agent signs in by
-    /// itself, and a private key never asks for a password.
+    /// A saved password belongs to Automatic and Password, and to every remote
+    /// desktop (VNC and RDP ask for one); Agent signs in by itself, and a
+    /// private key never asks for a password.
     private var wantsPassword: Bool {
-        !host.isDesktop && (authMode.isEmpty || authMode == "password")
+        if host.isDesktop { return true }
+        return authMode.isEmpty || authMode == "password"
+    }
+
+    /// The password field and its remove button, shared by the terminal and
+    /// desktop forms.
+    @ViewBuilder
+    private var passwordFields: some View {
+        SecureField(
+            passwordSaved ? "Saved password (type to replace)" : "Password (optional)",
+            text: $password
+        )
+        .textContentType(.password)
+        .onChange(of: password) { _, value in
+            if !value.isEmpty { removePassword = false }
+        }
+        if passwordSaved {
+            Button(
+                removePassword ? "Keep the saved password" : "Remove the saved password",
+                role: removePassword ? nil : .destructive
+            ) {
+                removePassword.toggle()
+                if removePassword { password = "" }
+            }
+        }
     }
 
     private var errorBinding: Binding<Bool> {
@@ -175,8 +252,52 @@ struct HostEditorView: View {
 
     private var canSave: Bool {
         if host.address.trimmingCharacters(in: .whitespaces).isEmpty { return false }
+        if let proxy = host.proxy, proxy.enabled,
+           proxy.address.trimmingCharacters(in: .whitespaces).isEmpty {
+            return false
+        }
         if host.isDesktop { return true }
         return !host.user.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    /// Picking a kind turns the proxy on or off; the other fields stay when the
+    /// user switches between SOCKS5 and HTTP.
+    private var proxyKindBinding: Binding<String> {
+        Binding(
+            get: { host.proxy?.kind ?? "" },
+            set: { kind in
+                if kind.isEmpty {
+                    host.proxy = nil
+                } else if var proxy = host.proxy {
+                    proxy.kind = kind
+                    host.proxy = proxy
+                } else {
+                    host.proxy = HostProxy(kind: kind)
+                }
+            }
+        )
+    }
+
+    private func proxyBinding(_ keyPath: WritableKeyPath<HostProxy, String>) -> Binding<String> {
+        Binding(
+            get: { host.proxy?[keyPath: keyPath] ?? "" },
+            set: { value in
+                guard var proxy = host.proxy else { return }
+                proxy[keyPath: keyPath] = value
+                host.proxy = proxy
+            }
+        )
+    }
+
+    private func proxyOptionalBinding(_ keyPath: WritableKeyPath<HostProxy, String?>) -> Binding<String> {
+        Binding(
+            get: { host.proxy?[keyPath: keyPath] ?? "" },
+            set: { value in
+                guard var proxy = host.proxy else { return }
+                proxy[keyPath: keyPath] = value.isEmpty ? nil : value
+                host.proxy = proxy
+            }
+        )
     }
 
     private func selectProtocol(_ value: String) {
@@ -203,9 +324,16 @@ struct HostEditorView: View {
     }
 
     private func loadPasswordStatus() {
-        guard !host.id.isEmpty, wantsPassword else { return }
-        bridge.hostPasswordStatus(id: host.id) { saved in
-            passwordSaved = saved
+        guard !host.id.isEmpty else { return }
+        if wantsPassword {
+            bridge.hostPasswordStatus(id: host.id) { saved in
+                passwordSaved = saved
+            }
+        }
+        if host.proxy?.enabled == true, host.proxy?.user?.isEmpty == false {
+            bridge.hostPasswordStatus(id: host.id, kind: "proxy") { saved in
+                proxyPasswordSaved = saved
+            }
         }
     }
 
@@ -222,30 +350,52 @@ struct HostEditorView: View {
         }
     }
 
-    /// The host's row is written first so a new host has the id its password is
-    /// kept under. The password itself never becomes part of the saved host.
+    /// The host's row is written first so a new host has the id its passwords
+    /// are kept under. The passwords themselves never become part of the saved
+    /// host.
     private func savePassword(for saved: Host) {
+        saveLoginPassword(for: saved) { loginError in
+            if let loginError {
+                self.saving = false
+                self.errorMessage = loginError.localizedDescription
+                return
+            }
+            self.saveProxyPassword(for: saved) { proxyError in
+                self.saving = false
+                if let proxyError {
+                    self.errorMessage = proxyError.localizedDescription
+                } else {
+                    self.dismiss()
+                }
+            }
+        }
+    }
+
+    private func saveLoginPassword(for saved: Host, completion: @escaping (Error?) -> Void) {
         if wantsPassword && !password.isEmpty {
-            bridge.setHostPassword(id: saved.id, password: password) { error in
-                saving = false
-                if let error {
-                    errorMessage = error.localizedDescription
-                } else {
-                    dismiss()
-                }
-            }
+            bridge.setHostPassword(id: saved.id, password: password, completion: completion)
         } else if wantsPassword && removePassword && passwordSaved {
-            bridge.setHostPassword(id: saved.id, password: "", remove: true) { error in
-                saving = false
-                if let error {
-                    errorMessage = error.localizedDescription
-                } else {
-                    dismiss()
-                }
-            }
+            bridge.setHostPassword(id: saved.id, password: "", remove: true, completion: completion)
         } else {
-            saving = false
-            dismiss()
+            completion(nil)
+        }
+    }
+
+    private func saveProxyPassword(for saved: Host, completion: @escaping (Error?) -> Void) {
+        guard saved.proxy?.enabled == true, saved.proxy?.user?.isEmpty == false else {
+            completion(nil)
+            return
+        }
+        if !proxyPassword.isEmpty {
+            bridge.setHostPassword(
+                id: saved.id, password: proxyPassword, kind: "proxy", completion: completion
+            )
+        } else if removeProxyPassword && proxyPasswordSaved {
+            bridge.setHostPassword(
+                id: saved.id, password: "", remove: true, kind: "proxy", completion: completion
+            )
+        } else {
+            completion(nil)
         }
     }
 }

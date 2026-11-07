@@ -27,7 +27,15 @@ final class TerminalUIView: UIView, UIKeyInput {
     private var buffer = [UInt8](repeating: 0, count: 512 * 1024)
     private var currentCols = 0
     private var currentRows = 0
-    private var keyBar: KeyBarView?
+    private var inputBar: TerminalInputBar?
+
+    /// Inline command completion: a debounced question to the core after every
+    /// keystroke. The core reads the line being edited from the terminal, so
+    /// the front end never has to keep one.
+    private var completionWork: DispatchWorkItem?
+    private var completionSequence = 0
+    /// The line the core last read from the screen, for the DEBUG probe.
+    private var lastCompletionLine = ""
 
     // Scrolling is pixel-accurate under the finger while the Go terminal only
     // stores whole-line offsets. `scrollBaseOffset` and `scrollDistance` describe
@@ -42,6 +50,8 @@ final class TerminalUIView: UIView, UIKeyInput {
     private var requestedScrollOffset = 0
     private var settleTarget: Int?
     private var settleFrames = 0
+    private var bounceBack = false
+    private var bounceTargetDistance: CGFloat = 0
     private var lastVisualOffset: CGFloat = 0
     private var lastTickTime: CFTimeInterval = 0
 
@@ -135,16 +145,32 @@ final class TerminalUIView: UIView, UIKeyInput {
         }
         #endif
 
-        keyBar = KeyBarView()
-        keyBar?.onKey = { [weak self] data in
+        let bar = TerminalInputBar()
+        bar.keyBar.onKey = { [weak self] data in
             self?.send(data)
         }
-        keyBar?.onPaste = { [weak self] in
+        bar.keyBar.onPaste = { [weak self] in
             self?.pasteText(UIPasteboard.general.string ?? "")
         }
-        keyBar?.onCopy = { [weak self] in
+        bar.keyBar.onCopy = { [weak self] in
             self?.copyScreen()
         }
+        bar.onSuggestion = { [weak self] candidate in
+            guard let self, !candidate.insert.isEmpty else { return }
+            self.send(Data(candidate.insert.utf8))
+            // The screen has not echoed yet; ask again once it has.
+            self.scheduleCompletion(after: 0.35)
+        }
+        bar.secondaryKeys.onKey = { [weak self] data in
+            self?.send(data)
+        }
+        bar.secondaryKeys.onPaste = { [weak self] in
+            self?.pasteText(UIPasteboard.general.string ?? "")
+        }
+        bar.secondaryKeys.onCopy = { [weak self] in
+            self?.copyScreen()
+        }
+        inputBar = bar
     }
 
     required init?(coder: NSCoder) {
@@ -224,14 +250,19 @@ final class TerminalUIView: UIView, UIKeyInput {
         case .ended:
             isPanning = false
             let velocity = gesture.velocity(in: self).y
-            if abs(velocity) >= 60 {
+            let maximum = CGFloat(max(0, snapshot.scrollback))
+            if rawScrollOffset < 0 || rawScrollOffset > maximum {
+                // Released while the content is past an end: spring back
+                // instead of snapping or continuing to push into nothing.
+                startBounceBack()
+            } else if abs(velocity) >= 60 {
                 scrollVelocity = min(8000, max(-8000, velocity))
             } else {
                 settleScroll()
             }
         case .cancelled, .failed:
             isPanning = false
-            settleScroll()
+            settleOrBounce()
         default:
             break
         }
@@ -256,6 +287,8 @@ final class TerminalUIView: UIView, UIKeyInput {
         scrollVelocity = 0
         settleTarget = nil
         settleFrames = 0
+        bounceBack = false
+        bounceTargetDistance = 0
         requestedScrollOffset = snapshot.viewOffset
         scrollActive = true
         isPanning = true
@@ -267,16 +300,26 @@ final class TerminalUIView: UIView, UIKeyInput {
         scrollBaseOffset + scrollDistance / cellHeight
     }
 
+    /// UIScrollView-like resistance for movement past either end. The first
+    /// points track the finger closely and the curve flattens out instead of
+    /// stopping at a hard limit, so the bottom of the screen still follows an
+    /// upward swipe.
+    private func rubberBand(_ distance: CGFloat) -> CGFloat {
+        let dimension = max(bounds.height, 1)
+        let coefficient: CGFloat = 0.6
+        return (distance * dimension * coefficient) / (dimension + coefficient * distance)
+    }
+
     /// The continuous offset the screen should show. Past either end the
     /// movement is damped, like a scroll view's bounce.
     private var desiredScrollOffset: CGFloat {
         let maximum = CGFloat(max(0, snapshot.scrollback))
         let raw = rawScrollOffset
         if raw < 0 {
-            return max(-1, raw * 0.3)
+            return -rubberBand(-raw * cellHeight) / cellHeight
         }
         if raw > maximum {
-            return min(maximum + 1, maximum + (raw - maximum) * 0.3)
+            return maximum + rubberBand((raw - maximum) * cellHeight) / cellHeight
         }
         return raw
     }
@@ -293,10 +336,49 @@ final class TerminalUIView: UIView, UIKeyInput {
     private func visualScrollOffset() -> CGFloat {
         guard scrollActive else { return 0 }
         let offset = (desiredScrollOffset - CGFloat(snapshot.viewOffset)) * cellHeight
-        // If the core is busy, do not push the whole screen away. The next
-        // frames fill the gap as the queued targets land.
+        // Past an end there is no core offset to catch up to: the movement is
+        // the rubber band itself, so clamping it would make a long swipe stop
+        // following the finger. Inside the range keep the clamp so a busy core
+        // cannot push the whole screen away while targets are queued.
+        let maximum = CGFloat(max(0, snapshot.scrollback))
+        let raw = rawScrollOffset
+        if raw < 0 || raw > maximum {
+            return offset
+        }
         let limit = cellHeight * 6
         return min(limit, max(-limit, offset))
+    }
+
+    /// Settle inside the scrollback, or spring back when the gesture ended
+    /// past either end.
+    private func settleOrBounce() {
+        let maximum = CGFloat(max(0, snapshot.scrollback))
+        let raw = rawScrollOffset
+        if raw < 0 || raw > maximum {
+            startBounceBack()
+        } else {
+            settleScroll()
+        }
+    }
+
+    /// Animate the damped overscroll back to the nearest whole-line boundary.
+    private func startBounceBack() {
+        let maximum = CGFloat(max(0, snapshot.scrollback))
+        let boundary = min(max(rawScrollOffset, 0), maximum)
+        bounceTargetDistance = (boundary - scrollBaseOffset) * cellHeight
+        scrollVelocity = 0
+        settleTarget = nil
+        settleFrames = 0
+        isPanning = false
+        if abs(scrollDistance - bounceTargetDistance) < 0.5 {
+            scrollDistance = bounceTargetDistance
+            bounceBack = false
+            settleScroll()
+            return
+        }
+        bounceBack = true
+        scrollActive = true
+        setScrollFrameRate(120)
     }
 
     private func settleScroll() {
@@ -319,6 +401,8 @@ final class TerminalUIView: UIView, UIKeyInput {
         scrollVelocity = 0
         settleTarget = nil
         settleFrames = 0
+        bounceBack = false
+        bounceTargetDistance = 0
         scrollDistance = 0
         scrollBaseOffset = 0
         setScrollFrameRate(60)
@@ -330,23 +414,38 @@ final class TerminalUIView: UIView, UIKeyInput {
 
     private func advanceMomentum(_ deltaTime: CFTimeInterval) {
         guard scrollActive, !isPanning else { return }
+        if bounceBack {
+            let remaining = bounceTargetDistance - scrollDistance
+            if abs(remaining) < 0.5 {
+                scrollDistance = bounceTargetDistance
+                bounceBack = false
+                settleScroll()
+            } else {
+                // Ease out: fast at first, then gently into the boundary.
+                scrollDistance += remaining * min(1, CGFloat(deltaTime) * 18)
+            }
+            setNeedsDisplay()
+            return
+        }
         if scrollVelocity != 0 {
             scrollDistance += scrollVelocity * CGFloat(deltaTime)
             // Standard scroll-view-like decay: about a third of a second to
             // lose most of the speed.
             scrollVelocity *= CGFloat(exp(-deltaTime / 0.32))
             if abs(scrollVelocity) < 20 {
-                settleScroll()
+                settleOrBounce()
             }
             setNeedsDisplay()
         } else if settleTarget == nil {
-            settleScroll()
+            settleOrBounce()
         }
     }
 
     @objc private func jumpToBottom() {
         scrollVelocity = 0
         isPanning = false
+        bounceBack = false
+        bounceTargetDistance = 0
         scrollBaseOffset = 0
         scrollDistance = 0
         settleTarget = 0
@@ -572,12 +671,18 @@ final class TerminalUIView: UIView, UIKeyInput {
     private var scrollProbeSummary: String {
         let probe = ScrollLatencyProbe.shared.summary
         let visual = String(format: "%.1f", lastVisualOffset)
+        let phase = MottyBridge.shared.sessions.first { $0.id == sessionID }?.phase ?? "-"
         return probe
             + " sb=\(snapshot.scrollback)"
             + " off=\(snapshot.viewOffset)"
             + " vis=\(visual)"
             + " pan=\(isPanning ? 1 : 0)"
             + " active=\(scrollActive ? 1 : 0)"
+            + " phase=\(phase)"
+            + " rows=\(currentRows)"
+            + " cols=\(currentCols)"
+            + " line=" + lastCompletionLine.replacingOccurrences(of: " ", with: "_")
+            + " " + (inputBar?.probeState ?? "")
     }
 
     /// Fill the scrollback once the shell has drawn its first prompt. Waiting
@@ -808,12 +913,69 @@ final class TerminalUIView: UIView, UIKeyInput {
     private func send(_ data: Data) {
         guard !data.isEmpty else { return }
         bridge?.input(sessionID: sessionID, data: data)
+        scheduleCompletion()
+    }
+
+    // MARK: Inline completion
+
+    /// Asks the core what the line could continue into, after the shell has had
+    /// a moment to echo the keystroke.
+    private func scheduleCompletion(after delay: TimeInterval = 0.22) {
+        completionWork?.cancel()
+        guard isFirstResponder else {
+            showSuggestions([])
+            return
+        }
+        let work = DispatchWorkItem { [weak self] in self?.requestCompletion() }
+        completionWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+    }
+
+    private func requestCompletion() {
+        guard let bridge, isFirstResponder else {
+            showSuggestions([])
+            return
+        }
+        completionSequence += 1
+        let sequence = completionSequence
+        let locale = AppLanguage.effectiveLocale.identifier
+        bridge.complete(sessionID: sessionID, locale: locale) { [weak self] result in
+            guard let self, sequence == self.completionSequence else { return }
+            switch result {
+            case .success(let answer):
+                self.lastCompletionLine = answer.line
+                // The core reads the line from the screen; an empty line means
+                // this is not a plain prompt (a password, vim, a menu) and
+                // nothing may be suggested.
+                if answer.suppressed || answer.line.isEmpty {
+                    self.showSuggestions([])
+                } else {
+                    self.showSuggestions(answer.candidates)
+                }
+            case .failure:
+                self.showSuggestions([])
+            }
+        }
+    }
+
+    private func showSuggestions(_ candidates: [CompletionCandidate]) {
+        inputBar?.show(candidates)
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let resigned = super.resignFirstResponder()
+        if resigned {
+            completionWork?.cancel()
+            completionSequence += 1
+            showSuggestions([])
+        }
+        return resigned
     }
 
     @objc private func focus() {
         if scrollActive && !isPanning {
             scrollVelocity = 0
-            settleScroll()
+            settleOrBounce()
         }
         if selectionRange != nil {
             clearSelection()
@@ -823,7 +985,7 @@ final class TerminalUIView: UIView, UIKeyInput {
     }
 
     override var canBecomeFirstResponder: Bool { true }
-    override var inputAccessoryView: UIView? { keyBar }
+    override var inputAccessoryView: UIView? { inputBar }
 
     var hasText: Bool { true }
 

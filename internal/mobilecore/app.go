@@ -88,7 +88,7 @@ func Start(cfg Config) (*App, error) {
 	history := newHistoryManager(cfg.DataDir)
 	sessions.logs = logs
 	sessions.history = history
-	desktops := newDesktopManager(cfg.DataDir, sessions, logs, events)
+	desktops := newDesktopManager(cfg.DataDir, data, sessions, logs, events)
 	app := &App{
 		cfg:      cfg,
 		data:     data,
@@ -106,6 +106,7 @@ func Start(cfg Config) (*App, error) {
 	}
 	app.sync = newSyncManager(app)
 	sessions.changed = app.requestSync
+	desktops.changed = app.requestSync
 	return app, nil
 }
 
@@ -189,39 +190,53 @@ func (a *App) call(method string, params json.RawMessage) (any, error) {
 		if err := decodeParams(params, &request); err != nil {
 			return nil, err
 		}
+		host, found := a.hosts.get(request.ID)
 		err := a.hosts.delete(request.ID)
 		if err == nil {
 			_ = a.data.secretDelete(hostSecretName(request.ID, hostPasswordPart))
 			_ = a.data.secretDelete(hostSecretName(request.ID, hostOTPPart))
+			if found {
+				_ = a.data.secretDelete(hostProxyPasswordSecret(request.ID, host.Proxy))
+			}
 			a.requestSync()
 		}
 		return map[string]bool{"deleted": true}, err
 	case "hosts.passwordStatus":
 		var request struct {
-			ID string `json:"id"`
+			ID   string `json:"id"`
+			Kind string `json:"kind"`
 		}
 		if err := decodeParams(params, &request); err != nil {
 			return nil, err
 		}
-		if _, ok := a.hosts.get(request.ID); !ok {
+		host, ok := a.hosts.get(request.ID)
+		if !ok {
 			return nil, errorf(CodeNotFound, "no host with id %q", request.ID)
 		}
-		_, found, err := a.data.secretGet(hostSecretName(request.ID, hostPasswordPart))
+		name, err := hostSecretFor(host, request.Kind)
+		if err != nil {
+			return nil, err
+		}
+		_, found, err := a.data.secretGet(name)
 		return map[string]bool{"saved": found}, err
 	case "hosts.password":
 		var request struct {
 			ID       string `json:"id"`
 			Password string `json:"password"`
 			Remove   bool   `json:"remove"`
+			Kind     string `json:"kind"`
 		}
 		if err := decodeParams(params, &request); err != nil {
 			return nil, err
 		}
-		if _, ok := a.hosts.get(request.ID); !ok {
+		host, ok := a.hosts.get(request.ID)
+		if !ok {
 			return nil, errorf(CodeNotFound, "no host with id %q", request.ID)
 		}
-		name := hostSecretName(request.ID, hostPasswordPart)
-		var err error
+		name, err := hostSecretFor(host, request.Kind)
+		if err != nil {
+			return nil, err
+		}
 		if request.Remove {
 			err = a.data.secretDelete(name)
 		} else {
@@ -303,8 +318,9 @@ func (a *App) call(method string, params json.RawMessage) (any, error) {
 		// The user may list models before saving the form, for example right
 		// after typing a new key, so the call may carry a draft: it is used for
 		// this request only and never written to disk. An omitted field keeps
-		// the saved value.
+		// the saved value of the provider being edited.
 		var draft struct {
+			ID       string  `json:"id"`
 			Provider string  `json:"provider"`
 			BaseURL  *string `json:"baseUrl"`
 			APIKey   *string `json:"apiKey"`
@@ -312,16 +328,25 @@ func (a *App) call(method string, params json.RawMessage) (any, error) {
 		if err := decodeParams(params, &draft); err != nil {
 			return nil, err
 		}
+		current, _ := settings.current()
+		if id := strings.TrimSpace(draft.ID); id != "" && id != current.ID {
+			// The form is editing another provider; its own fields are the
+			// whole truth, and the active provider's key must not leak in.
+			current = aiProvider{ID: id}
+		}
 		if provider := strings.ToLower(strings.TrimSpace(draft.Provider)); provider != "" {
-			settings.Provider = provider
+			current.Provider = provider
 		}
 		if draft.BaseURL != nil {
-			settings.BaseURL = strings.TrimSpace(*draft.BaseURL)
+			current.BaseURL = strings.TrimSpace(*draft.BaseURL)
 		}
 		if draft.APIKey != nil {
-			settings.APIKey = strings.TrimSpace(*draft.APIKey)
+			current.APIKey = strings.TrimSpace(*draft.APIKey)
 		}
-		provider, err := a.ai.provider(settings)
+		if current.Provider == "" {
+			current.Provider = "openai"
+		}
+		provider, err := a.ai.provider(current)
 		if err != nil {
 			return nil, err
 		}

@@ -4,6 +4,8 @@ struct SettingsView: View {
     @EnvironmentObject private var bridge: MottyBridge
     @Environment(\.dismiss) private var dismiss
     @AppStorage(AppLanguage.storageKey) private var language = AppLanguage.system.rawValue
+    @AppStorage("keepAliveInBackground") private var keepAliveInBackground = true
+    @AppStorage("liveActivityEnabled") private var liveActivityEnabled = true
 
     var body: some View {
         NavigationStack {
@@ -21,6 +23,18 @@ struct SettingsView: View {
                         Text("5,000 lines")
                     }
                 }
+                Section {
+                    Toggle(isOn: $keepAliveInBackground) {
+                        Label("Keep SSH alive when locked", systemImage: "lock.shield")
+                    }
+                    Toggle(isOn: $liveActivityEnabled) {
+                        Label("Live Activity", systemImage: "bolt.horizontal.circle")
+                    }
+                } header: {
+                    Text("Background")
+                } footer: {
+                    Text("Lock-screen keepalive plays silent audio so iOS does not suspend the SSH connection; this uses extra battery. The Live Activity shows the session on the Lock Screen and in the Dynamic Island, but does not keep the app running by itself.")
+                }
                 Section("Authentication") {
                     NavigationLink {
                         KeysView()
@@ -33,13 +47,15 @@ struct SettingsView: View {
                         AISettingsView()
                     } label: {
                         LabeledContent("Provider & model") {
-                            if bridge.aiSettings.model.isEmpty {
-                                Text("Not configured")
+                            if let provider = bridge.aiSettings.current,
+                               !provider.model.trimmingCharacters(in: .whitespaces).isEmpty {
+                                Text(verbatim: provider.displayName + " · " + provider.model)
                             } else {
-                                Text(verbatim: bridge.aiSettings.model)
+                                Text("Not configured")
                             }
                         }
                     }
+                    .accessibilityIdentifier("settings.assistant")
                 }
                 Section("Sync & Backup") {
                     NavigationLink {

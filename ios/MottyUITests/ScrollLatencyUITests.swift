@@ -48,6 +48,186 @@ final class ScrollLatencyUITests: XCTestCase {
         XCTAssertEqual(number(named: "seq", in: third), 3, "third drag was not counted: \(third)")
     }
 
+    /// At the live screen (viewOffset 0) an upward swipe used to be damped to
+    /// 30% and hard-capped at one line, so it barely moved. It has to follow
+    /// the finger past the end and then spring back.
+    func testSwipeUpAtBottomFollowsFinger() throws {
+        let (app, probe) = try connect(autoType: "seq 1 300")
+        waitForScrollback(probe, atLeast: 250)
+        waitForBottom(probe)
+
+        drag(app, velocity: .fast, pressDuration: 0.01, hold: 0.5,
+             from: CGVector(dx: 0.5, dy: 0.50), to: CGVector(dx: 0.5, dy: 0.15))
+        let swipe = try probeValue(probe)
+        print("SWIPE_UP_AT_BOTTOM \(swipe)")
+
+        guard let drawVisual = number(named: "drawVisual", in: swipe),
+              let lastVisual = number(named: "lastVisual", in: swipe) else {
+            XCTFail("probe did not record the gesture: \(swipe)")
+            return
+        }
+        XCTAssertLessThan(drawVisual, -3,
+                          "the first paint did not follow the upward swipe: \(swipe)")
+        XCTAssertLessThan(lastVisual, -40,
+                          "the bottom bounce stopped following the finger: \(swipe)")
+        XCTAssertEqual(number(named: "off", in: swipe), 0,
+                       "the core should stay at the live screen: \(swipe)")
+
+        // Releasing past the end springs back to the live screen.
+        let settled = XCTNSPredicateExpectation(
+            predicate: NSPredicate { object, _ in
+                guard let element = object as? XCUIElement,
+                      let value = element.value as? String,
+                      let visual = self.number(named: "vis", in: value) else {
+                    return false
+                }
+                return abs(visual) < 1
+            },
+            object: probe
+        )
+        wait(for: [settled], timeout: 5)
+    }
+
+    /// The terminal focuses itself on appear, so the keyboard is up from the
+    /// first frame. It has to shrink (and resize the pty) instead of drawing
+    /// its last rows behind the input method.
+    func testTerminalShrinksForKeyboard() throws {
+        let (_, probe) = try connect(autoType: "seq 1 300")
+        waitForScrollback(probe, atLeast: 250)
+
+        let summary = try probeValue(probe)
+        print("KEYBOARD_ROWS \(summary)")
+        guard let rows = number(named: "rows", in: summary) else {
+            XCTFail("probe did not report rows: \(summary)")
+            return
+        }
+        XCTAssertGreaterThan(rows, 5, "the terminal collapsed: \(summary)")
+        XCTAssertLessThan(rows, 30, "the terminal did not shrink for the keyboard: \(summary)")
+    }
+
+    /// Typing a command prefix has to offer a common parameter combination
+    /// inline, above the keyboard, and tapping it types the rest of the line.
+    func testInlineCompletionSuggestsACombination() throws {
+        let (app, probe) = try connect(autoType: "")
+
+        // The terminal is a UIKeyInput view; a tap makes sure it is the first
+        // responder before the keyboard types into it.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
+        app.typeText("git st")
+
+        let chip = app.buttons["suggestion.0"]
+        XCTAssertTrue(chip.waitForExistence(timeout: 10), "no inline suggestion appeared")
+        XCTAssertTrue(
+            chip.label.contains("atus -sb"),
+            "the first suggestion was not the git status combination: \(chip.label)"
+        )
+
+        // A plain tap makes XCUITest scroll the chip into view first, which
+        // fails inside the keyboard's accessory view; tapping its coordinate
+        // hits it directly.
+        chip.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+
+        // The probe reports the line the core read back from the screen, so a
+        // match proves the suffix reached the shell and came back.
+        let inserted = XCTNSPredicateExpectation(
+            predicate: NSPredicate { object, _ in
+                guard let element = object as? XCUIElement,
+                      let value = element.value as? String,
+                      let line = self.string(named: "line", in: value) else {
+                    return false
+                }
+                return line == "git_status_-sb"
+            },
+            object: probe
+        )
+        wait(for: [inserted], timeout: 10)
+
+        // The line is now exactly a curated combination, so the core has
+        // nothing left to offer and the bar hides.
+        let gone = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in !chip.exists },
+            object: nil
+        )
+        wait(for: [gone], timeout: 10)
+    }
+
+    /// Several assistant providers can be configured and the active one
+    /// switched. This walks the real settings screen, so the Swift form, the
+    /// bridge and the Go save all have to agree on the provider list shape.
+    func testAssistantProviderCanBeAdded() throws {
+        let app = XCUIApplication()
+        let environment = ProcessInfo.processInfo.environment
+        app.launchArguments = [
+            "-MottyUITestSeed", "motty-ui-fixture",
+            environment["MOTTY_UI_TEST_HOST"] ?? "127.0.0.1",
+            environment["MOTTY_UI_TEST_PORT"] ?? "2222",
+            "me", "secret",
+        ]
+        app.launch()
+
+        app.buttons["settings"].tap()
+        let assistant = app.buttons["settings.assistant"]
+        XCTAssertTrue(assistant.waitForExistence(timeout: 10), "the assistant row is missing")
+        assistant.tap()
+
+        let add = app.buttons.matching(identifier: "ai.addProvider").firstMatch
+        XCTAssertTrue(add.waitForExistence(timeout: 10), "the provider list did not appear")
+        add.tap()
+
+        let name = app.textFields["ai.name"]
+        XCTAssertTrue(name.waitForExistence(timeout: 10), "the provider editor did not appear")
+        name.tap()
+        name.typeText("Work")
+        let model = app.textFields["ai.model"]
+        model.tap()
+        model.typeText("gpt-test")
+        app.buttons["ai.done"].tap()
+
+        XCTAssertTrue(app.staticTexts["Work"].waitForExistence(timeout: 10),
+                      "the provider was not added")
+
+        // Saving crosses the bridge and the core; a wrong wire shape leaves
+        // an error alert instead of popping back to Settings with the new
+        // active provider.
+        app.buttons["ai.save"].tap()
+        let summary = app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@", "gpt-test")
+        ).firstMatch
+        XCTAssertTrue(summary.waitForExistence(timeout: 10),
+                      "the saved provider is not shown in Settings")
+    }
+
+    /// Backgrounds the app for longer than the SSH keepalive interval. The
+    /// silent-audio keepalive has to keep the process (and the socket) alive;
+    /// if iOS suspends it, the session is gone when the app comes back.
+    func testBackgroundKeepAlive() throws {
+        let (app, probe) = try connect(autoType: "seq 1 300")
+        waitForScrollback(probe, atLeast: 250)
+        waitForBottom(probe)
+
+        XCUIDevice.shared.press(.home)
+        Thread.sleep(forTimeInterval: 45)
+
+        let screenshot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        screenshot.name = "Home screen with Live Activity"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+
+        app.activate()
+        let alive = XCTNSPredicateExpectation(
+            predicate: NSPredicate { object, _ in
+                guard let element = object as? XCUIElement,
+                      let value = element.value as? String,
+                      let phase = self.string(named: "phase", in: value) else {
+                    return false
+                }
+                return phase == "connected"
+            },
+            object: probe
+        )
+        wait(for: [alive], timeout: 20)
+    }
+
     /// The first swipe while the shell is still flooding the terminal. This is
     /// the busy-main-thread case where touch delivery can trail the finger.
     func testFirstSwipeWhileOutputStreams() throws {
@@ -133,6 +313,21 @@ final class ScrollLatencyUITests: XCTestCase {
         wait(for: [filled], timeout: 40)
     }
 
+    private func waitForBottom(_ probe: XCUIElement) {
+        let bottom = XCTNSPredicateExpectation(
+            predicate: NSPredicate { object, _ in
+                guard let element = object as? XCUIElement,
+                      let value = element.value as? String,
+                      let offset = self.number(named: "off", in: value) else {
+                    return false
+                }
+                return offset == 0
+            },
+            object: probe
+        )
+        wait(for: [bottom], timeout: 10)
+    }
+
     private func drag(
         _ app: XCUIApplication,
         velocity: XCUIGestureVelocity,
@@ -163,6 +358,15 @@ final class ScrollLatencyUITests: XCTestCase {
             let parts = field.split(separator: "=", maxSplits: 1)
             guard parts.count == 2, parts[0] == Substring(name) else { continue }
             return Double(parts[1])
+        }
+        return nil
+    }
+
+    private func string(named name: String, in summary: String) -> String? {
+        for field in summary.split(separator: " ") {
+            let parts = field.split(separator: "=", maxSplits: 1)
+            guard parts.count == 2, parts[0] == Substring(name) else { continue }
+            return String(parts[1])
         }
         return nil
     }

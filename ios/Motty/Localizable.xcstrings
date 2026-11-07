@@ -161,6 +161,22 @@
         }
       }
     },
+    "A direct connection does not use a proxy.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "直连不使用代理。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "直連不使用代理。"
+          }
+        }
+      }
+    },
     "A file with that name already exists.": {
       "localizations": {
         "zh-Hans": {
@@ -321,6 +337,22 @@
         }
       }
     },
+    "Active provider": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当前供应商"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目前供應商"
+          }
+        }
+      }
+    },
     "Add a destination, or import an OpenSSH config.": {
       "localizations": {
         "zh-Hans": {
@@ -349,6 +381,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "新增轉發"
+          }
+        }
+      }
+    },
+    "Add provider": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加供应商"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增供應商"
           }
         }
       }
@@ -625,6 +673,54 @@
         }
       }
     },
+    "Auth failed": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "认证失败"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "驗證失敗"
+          }
+        }
+      }
+    },
+    "Authenticating": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在认证"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在驗證"
+          }
+        }
+      }
+    },
+    "Authenticating...": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在认证…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在驗證…"
+          }
+        }
+      }
+    },
     "Authenticating…": {
       "localizations": {
         "zh-Hans": {
@@ -685,6 +781,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "自動同步"
+          }
+        }
+      }
+    },
+    "Background": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "后台"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "後台"
           }
         }
       }
@@ -845,6 +957,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "已取消"
+          }
+        }
+      }
+    },
+    "Cannot edit this file": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法编辑此文件"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法編輯此檔案"
           }
         }
       }
@@ -1053,6 +1181,38 @@
           "stringUnit": {
             "state": "translated",
             "value": "關閉"
+          }
+        }
+      }
+    },
+    "Close all connections": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭全部连接"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉全部連線"
+          }
+        }
+      }
+    },
+    "Close connection": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭连接"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉連線"
           }
         }
       }
@@ -1297,6 +1457,22 @@
         }
       }
     },
+    "Connect failed": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接失败"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連線失敗"
+          }
+        }
+      }
+    },
     "Connected": {
       "localizations": {
         "zh-Hans": {
@@ -1457,6 +1633,38 @@
         }
       }
     },
+    "Conversation history": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "历史对话"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "歷史對話"
+          }
+        }
+      }
+    },
+    "Conversations are saved on this iPhone. Starting a new conversation keeps the old one here.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "对话保存在这台 iPhone 上。开始新对话时，旧对话会保留在这里。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "對話儲存在這台 iPhone 上。開始新對話時，舊對話會保留在這裡。"
+          }
+        }
+      }
+    },
     "Copied": {
       "localizations": {
         "zh-Hans": {
@@ -1533,6 +1741,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "無法複製檔案：%@"
+          }
+        }
+      }
+    },
+    "Could not load the file": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法加载文件"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法載入檔案"
           }
         }
       }
@@ -1665,6 +1889,22 @@
         }
       }
     },
+    "Current": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当前"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目前"
+          }
+        }
+      }
+    },
     "Delete": {
       "localizations": {
         "zh-Hans": {
@@ -1729,6 +1969,38 @@
         }
       }
     },
+    "Discard": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "放弃"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "捨棄"
+          }
+        }
+      }
+    },
+    "Discard changes?": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "放弃更改？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "捨棄變更？"
+          }
+        }
+      }
+    },
     "Disconnected": {
       "localizations": {
         "zh-Hans": {
@@ -1777,6 +2049,22 @@
         }
       }
     },
+    "Download and discard changes?": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下载并放弃更改？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下載並捨棄變更？"
+          }
+        }
+      }
+    },
     "Duration": {
       "localizations": {
         "zh-Hans": {
@@ -1789,6 +2077,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "持續時間"
+          }
+        }
+      }
+    },
+    "Each provider keeps its own endpoint, key and model. The key is stored in the app's private container and only sent to that endpoint.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每个供应商保存各自的端点、密钥和模型。密钥保存在应用的私有容器中，只会发送到该端点。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每個供應商儲存各自的端點、金鑰和模型。金鑰儲存在應用程式的私有容器中，只會傳送到該端點。"
           }
         }
       }
@@ -2113,6 +2417,22 @@
         }
       }
     },
+    "File editor": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文件编辑器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "檔案編輯器"
+          }
+        }
+      }
+    },
     "File name": {
       "localizations": {
         "zh-Hans": {
@@ -2141,6 +2461,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "檔案路徑"
+          }
+        }
+      }
+    },
+    "Files larger than 8 MiB cannot be edited.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "超过 8 MiB 的文件无法编辑。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "超過 8 MiB 的檔案無法編輯。"
           }
         }
       }
@@ -2401,6 +2737,38 @@
         }
       }
     },
+    "Host key prompt": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主机密钥确认"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主機金鑰確認"
+          }
+        }
+      }
+    },
+    "Host key rejected": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主机密钥被拒绝"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主機金鑰遭拒絕"
+          }
+        }
+      }
+    },
     "Host or IP": {
       "localizations": {
         "zh-Hans": {
@@ -2593,6 +2961,38 @@
         }
       }
     },
+    "Keep SSH alive when locked": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "锁屏时保持 SSH 连接"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "鎖屏時保持 SSH 連線"
+          }
+        }
+      }
+    },
+    "Keep in background": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保留在后台"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保留在背景"
+          }
+        }
+      }
+    },
     "Keep the saved password": {
       "localizations": {
         "zh-Hans": {
@@ -2605,6 +3005,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "保留已儲存的密碼"
+          }
+        }
+      }
+    },
+    "Keep the saved proxy password": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保留已保存的代理密码"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保留已儲存的代理密碼"
           }
         }
       }
@@ -2769,6 +3185,22 @@
         }
       }
     },
+    "Live Activity": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "实时活动"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "即時活動"
+          }
+        }
+      }
+    },
     "Load available models": {
       "localizations": {
         "zh-Hans": {
@@ -2797,6 +3229,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "載入更早的工作階段"
+          }
+        }
+      }
+    },
+    "Loading…": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在加载…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在載入…"
           }
         }
       }
@@ -2845,6 +3293,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "位置"
+          }
+        }
+      }
+    },
+    "Lock-screen keepalive plays silent audio so iOS does not suspend the SSH connection; this uses extra battery. The Live Activity shows the session on the Lock Screen and in the Dynamic Island, but does not keep the app running by itself.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "锁屏保活会循环播放静音音频，避免 iOS 挂起 SSH 连接，会增加耗电。实时活动会在锁屏和灵动岛显示会话状态，但它本身不会让 App 持续运行。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "鎖屏保活會循環播放靜音音訊，避免 iOS 暫停 SSH 連線，會增加耗電。即時活動會在鎖屏和動態島顯示工作階段狀態，但它本身不會讓 App 持續執行。"
           }
         }
       }
@@ -3009,6 +3473,22 @@
         }
       }
     },
+    "Network lost": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "网络中断"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "網路中斷"
+          }
+        }
+      }
+    },
     "New certificate": {
       "localizations": {
         "zh-Hans": {
@@ -3121,6 +3601,38 @@
         }
       }
     },
+    "New terminal": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新建终端"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增終端"
+          }
+        }
+      }
+    },
+    "No assistant provider is configured yet.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚未配置助手供应商。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚未設定助理供應商。"
+          }
+        }
+      }
+    },
     "No commands yet": {
       "localizations": {
         "zh-Hans": {
@@ -3197,6 +3709,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "沒有連接埠轉發"
+          }
+        }
+      }
+    },
+    "No saved conversations": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有已保存的对话"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有已儲存的對話"
           }
         }
       }
@@ -3393,6 +3921,22 @@
         }
       }
     },
+    "Open sessions": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已打开的会话"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已開啟的連線"
+          }
+        }
+      }
+    },
     "Open the SSH host first: the desktop is dialed from inside that server, so plain VNC or RDP need not be exposed.": {
       "localizations": {
         "zh-Hans": {
@@ -3437,6 +3981,54 @@
           "stringUnit": {
             "state": "translated",
             "value": "OpenAI 相容"
+          }
+        }
+      }
+    },
+    "Opening a saved conversation continues it. New messages are added to that thread.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开已保存的对话会继续该对话，新消息会加入其中。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟已儲存的對話會繼續該對話，新訊息會加入其中。"
+          }
+        }
+      }
+    },
+    "Optional label": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可选名称"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可選名稱"
+          }
+        }
+      }
+    },
+    "Outbound proxy": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "出站代理"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "對外代理"
           }
         }
       }
@@ -3809,6 +4401,22 @@
         }
       }
     },
+    "Process restart": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "进程重启"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "處理程序重新啟動"
+          }
+        }
+      }
+    },
     "Protocol": {
       "localizations": {
         "zh-Hans": {
@@ -3857,6 +4465,54 @@
         }
       }
     },
+    "Providers": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "供应商"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "供應商"
+          }
+        }
+      }
+    },
+    "Proxy": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理"
+          }
+        }
+      }
+    },
+    "Proxy address": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理地址"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理位址"
+          }
+        }
+      }
+    },
     "Proxy jump": {
       "localizations": {
         "zh-Hans": {
@@ -3873,6 +4529,38 @@
         }
       }
     },
+    "Proxy password (optional)": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理密码（可选）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理密碼（選填）"
+          }
+        }
+      }
+    },
+    "Proxy user (optional)": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理用户名（可选）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理使用者名稱（選填）"
+          }
+        }
+      }
+    },
     "Queued": {
       "localizations": {
         "zh-Hans": {
@@ -3885,6 +4573,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "排隊中"
+          }
+        }
+      }
+    },
+    "RDP": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RDP"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RDP"
           }
         }
       }
@@ -3953,6 +4657,70 @@
         }
       }
     },
+    "Reconnect canceled": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已取消重连"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已取消重新連線"
+          }
+        }
+      }
+    },
+    "Reconnect exhausted": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重连次数用尽"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新連線次數用盡"
+          }
+        }
+      }
+    },
+    "Reconnect scheduled": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已安排重新连接"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已排定重新連線"
+          }
+        }
+      }
+    },
+    "Reconnect started": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开始重新连接"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開始重新連線"
+          }
+        }
+      }
+    },
     "Reconnecting": {
       "localizations": {
         "zh-Hans": {
@@ -4013,6 +4781,54 @@
           "stringUnit": {
             "state": "translated",
             "value": "拒絕"
+          }
+        }
+      }
+    },
+    "Reload": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新加载"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新載入"
+          }
+        }
+      }
+    },
+    "Reload from server?": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从服务器重新加载？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "從伺服器重新載入？"
+          }
+        }
+      }
+    },
+    "Remember password": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "记住密码"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "記住密碼"
           }
         }
       }
@@ -4125,6 +4941,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "刪除已儲存的密碼"
+          }
+        }
+      }
+    },
+    "Remove the saved proxy password": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删除已保存的代理密码"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "刪除已儲存的代理密碼"
           }
         }
       }
@@ -4513,6 +5345,22 @@
         }
       }
     },
+    "Save failed": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存失败"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "儲存失敗"
+          }
+        }
+      }
+    },
     "Save this password for the host": {
       "localizations": {
         "zh-Hans": {
@@ -4525,6 +5373,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "為此主機儲存密碼"
+          }
+        }
+      }
+    },
+    "Saved": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已保存"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已儲存"
           }
         }
       }
@@ -4573,6 +5437,38 @@
           "stringUnit": {
             "state": "translated",
             "value": "已儲存的密碼（輸入可替換）"
+          }
+        }
+      }
+    },
+    "Saved proxy password (type to replace)": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已保存的代理密码（输入可替换）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已儲存的代理密碼（輸入可取代）"
+          }
+        }
+      }
+    },
+    "Saving…": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在保存…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在儲存…"
           }
         }
       }
@@ -4705,6 +5601,22 @@
         }
       }
     },
+    "Serial": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "串口"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "序列埠"
+          }
+        }
+      }
+    },
     "Server": {
       "localizations": {
         "zh-Hans": {
@@ -4769,6 +5681,22 @@
         }
       }
     },
+    "Session finished": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会话结束"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作階段結束"
+          }
+        }
+      }
+    },
     "Session journal rows are deleted from this device only.": {
       "localizations": {
         "zh-Hans": {
@@ -4797,6 +5725,54 @@
           "stringUnit": {
             "state": "translated",
             "value": "工作階段記錄"
+          }
+        }
+      }
+    },
+    "Session recovered": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会话已恢复"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作階段已還原"
+          }
+        }
+      }
+    },
+    "Session started": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会话开始"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作階段開始"
+          }
+        }
+      }
+    },
+    "Set a proxy user to be able to save its password.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "填写代理用户名后才能保存代理密码。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "填寫代理使用者名稱後才能儲存代理密碼。"
           }
         }
       }
@@ -4865,6 +5841,38 @@
         }
       }
     },
+    "Shell failed": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shell 启动失败"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shell 啟動失敗"
+          }
+        }
+      }
+    },
+    "Shell opened": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shell 已打开"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shell 已開啟"
+          }
+        }
+      }
+    },
     "Show": {
       "localizations": {
         "zh-Hans": {
@@ -4893,6 +5901,38 @@
           "stringUnit": {
             "state": "translated",
             "value": "顯示隱藏檔案"
+          }
+        }
+      }
+    },
+    "Show less": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "收起"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "收起"
+          }
+        }
+      }
+    },
+    "Show more": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示更多"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示更多"
           }
         }
       }
@@ -5169,6 +6209,22 @@
         }
       }
     },
+    "Telnet": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Telnet"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Telnet"
+          }
+        }
+      }
+    },
     "Terminal": {
       "localizations": {
         "zh-Hans": {
@@ -5265,6 +6321,22 @@
         }
       }
     },
+    "The assistant uses the selected provider for every session.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "助手的所有会话都会使用所选供应商。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "助理的所有工作階段都會使用所選供應商。"
+          }
+        }
+      }
+    },
     "The certificate changed": {
       "localizations": {
         "zh-Hans": {
@@ -5277,6 +6349,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "憑證已更改"
+          }
+        }
+      }
+    },
+    "The file changed on the server. Reload it before saving again.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文件已在服务器上被修改。请重新加载后再保存。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "檔案已在伺服器上被修改。請重新載入後再儲存。"
           }
         }
       }
@@ -5377,6 +6465,22 @@
         }
       }
     },
+    "The proxy carries this host's first connection. Its password is kept in the vault and used automatically.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理承载此主机的首次连接；密码保存在加密保险库中并自动使用。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理承載此主機的首次連線；密碼儲存在加密保險庫中並自動使用。"
+          }
+        }
+      }
+    },
     "The remote system has not put any text on its clipboard yet.": {
       "localizations": {
         "zh-Hans": {
@@ -5409,6 +6513,22 @@
         }
       }
     },
+    "The saved proxy password is removed when you save.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存后将删除已保存的代理密码。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "儲存後將刪除已儲存的代理密碼。"
+          }
+        }
+      }
+    },
     "The server holds one encrypted file. Encrypt it with the backup password below; the desktop version of Motty reads the same file.": {
       "localizations": {
         "zh-Hans": {
@@ -5421,6 +6541,38 @@
           "stringUnit": {
             "state": "translated",
             "value": "伺服器上只儲存一個加密檔案。使用下方的備份密碼加密；桌面版 Motty 可以讀取同一個檔案。"
+          }
+        }
+      }
+    },
+    "This discards your unsaved changes.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这会放弃你尚未保存的更改。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這會捨棄你尚未儲存的變更。"
+          }
+        }
+      }
+    },
+    "This file is not UTF-8 text.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此文件不是 UTF-8 文本。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此檔案不是 UTF-8 文字。"
           }
         }
       }
@@ -5473,6 +6625,22 @@
         }
       }
     },
+    "This server does not support editing files here.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此服务器不支持在这里编辑文件。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此伺服器不支援在這裡編輯檔案。"
+          }
+        }
+      }
+    },
     "Timeline": {
       "localizations": {
         "zh-Hans": {
@@ -5489,6 +6657,22 @@
         }
       }
     },
+    "Timeout": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "超时"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "逾時"
+          }
+        }
+      }
+    },
     "Tool": {
       "localizations": {
         "zh-Hans": {
@@ -5501,6 +6685,38 @@
           "stringUnit": {
             "state": "translated",
             "value": "工具"
+          }
+        }
+      }
+    },
+    "Tracking off": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "记录已关闭"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "記錄已關閉"
+          }
+        }
+      }
+    },
+    "Tracking stopped": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已停止记录"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已停止記錄"
           }
         }
       }
@@ -5649,6 +6865,22 @@
         }
       }
     },
+    "Unknown": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知"
+          }
+        }
+      }
+    },
     "Unknown host key": {
       "localizations": {
         "zh-Hans": {
@@ -5661,6 +6893,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "未知主機金鑰"
+          }
+        }
+      }
+    },
+    "Unsaved changes": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚未保存的更改"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚未儲存的變更"
           }
         }
       }
@@ -5741,6 +6989,38 @@
           "stringUnit": {
             "state": "translated",
             "value": "使用者"
+          }
+        }
+      }
+    },
+    "User closed": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用户关闭"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用者關閉"
+          }
+        }
+      }
+    },
+    "VNC": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VNC"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VNC"
           }
         }
       }
@@ -5901,6 +7181,38 @@
           "stringUnit": {
             "state": "translated",
             "value": "WebDAV"
+          }
+        }
+      }
+    },
+    "Your changes have not been saved.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的更改尚未保存。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的變更尚未儲存。"
+          }
+        }
+      }
+    },
+    "attempt %lld": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "第 %lld 次尝试"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "第 %lld 次嘗試"
           }
         }
       }
@@ -6109,502 +7421,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "↑%@ ↓%@ · %lld 條流"
-          }
-        }
-      }
-    },
-    "Close connection": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "关闭连接"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "關閉連線"
-          }
-        }
-      }
-    },
-    "Conversation history": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "历史对话"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "歷史對話"
-          }
-        }
-      }
-    },
-    "Keep in background": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "保留在后台"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "保留在背景"
-          }
-        }
-      }
-    },
-    "Current": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "当前"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "目前"
-          }
-        }
-      }
-    },
-    "No saved conversations": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "没有已保存的对话"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "沒有已儲存的對話"
-          }
-        }
-      }
-    },
-    "Conversations are saved on this iPhone. Starting a new conversation keeps the old one here.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "对话保存在这台 iPhone 上。开始新对话时，旧对话会保留在这里。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "對話儲存在這台 iPhone 上。開始新對話時，舊對話會保留在這裡。"
-          }
-        }
-      }
-    },
-    "Opening a saved conversation continues it. New messages are added to that thread.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "打开已保存的对话会继续该对话，新消息会加入其中。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "開啟已儲存的對話會繼續該對話，新訊息會加入其中。"
-          }
-        }
-      }
-    },
-    "Open sessions": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已打开的会话"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已開啟的連線"
-          }
-        }
-      }
-    },
-    "Close all connections": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "关闭全部连接"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "關閉全部連線"
-          }
-        }
-      }
-    },
-    "Show more": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "显示更多"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "顯示更多"
-          }
-        }
-      }
-    },
-    "Show less": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "收起"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "收起"
-          }
-        }
-      }
-    },
-    "Loading…": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在加载…"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在載入…"
-          }
-        }
-      }
-    },
-    "Saving…": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在保存…"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在儲存…"
-          }
-        }
-      }
-    },
-    "Saved": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已保存"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已儲存"
-          }
-        }
-      }
-    },
-    "Unsaved changes": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "尚未保存的更改"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "尚未儲存的變更"
-          }
-        }
-      }
-    },
-    "Save failed": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "保存失败"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "儲存失敗"
-          }
-        }
-      }
-    },
-    "Reload": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "重新加载"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "重新載入"
-          }
-        }
-      }
-    },
-    "Reload from server?": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "从服务器重新加载？"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "從伺服器重新載入？"
-          }
-        }
-      }
-    },
-    "This discards your unsaved changes.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "这会放弃你尚未保存的更改。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "這會捨棄你尚未儲存的變更。"
-          }
-        }
-      }
-    },
-    "Discard changes?": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "放弃更改？"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "捨棄變更？"
-          }
-        }
-      }
-    },
-    "Discard": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "放弃"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "捨棄"
-          }
-        }
-      }
-    },
-    "Your changes have not been saved.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "你的更改尚未保存。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "你的變更尚未儲存。"
-          }
-        }
-      }
-    },
-    "Cannot edit this file": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "无法编辑此文件"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "無法編輯此檔案"
-          }
-        }
-      }
-    },
-    "Could not load the file": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "无法加载文件"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "無法載入檔案"
-          }
-        }
-      }
-    },
-    "This file is not UTF-8 text.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "此文件不是 UTF-8 文本。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "此檔案不是 UTF-8 文字。"
-          }
-        }
-      }
-    },
-    "Files larger than 8 MiB cannot be edited.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "超过 8 MiB 的文件无法编辑。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "超過 8 MiB 的檔案無法編輯。"
-          }
-        }
-      }
-    },
-    "This server does not support editing files here.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "此服务器不支持在这里编辑文件。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "此伺服器不支援在這裡編輯檔案。"
-          }
-        }
-      }
-    },
-    "The file changed on the server. Reload it before saving again.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "文件已在服务器上被修改。请重新加载后再保存。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "檔案已在伺服器上被修改。請重新載入後再儲存。"
-          }
-        }
-      }
-    },
-    "File editor": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "文件编辑器"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "檔案編輯器"
-          }
-        }
-      }
-    },
-    "Download and discard changes?": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "下载并放弃更改？"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "下載並捨棄變更？"
-          }
-        }
-      }
-    },
-    "New terminal": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "新建终端"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "新增終端"
           }
         }
       }

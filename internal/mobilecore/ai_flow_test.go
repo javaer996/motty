@@ -69,10 +69,10 @@ func addTestSession(t *testing.T, app *App, id uint32) {
 
 func useFakeProvider(t *testing.T, app *App, provider llm.Provider) {
 	t.Helper()
-	if _, err := app.ai.settings.save(aiSettings{Provider: "openai", Model: "fake-model"}); err != nil {
+	if _, err := app.ai.settings.save(aiSettings{Providers: []aiProvider{{Provider: "openai", Model: "fake-model"}}}); err != nil {
 		t.Fatal(err)
 	}
-	app.ai.provider = func(aiSettings) (llm.Provider, error) { return provider, nil }
+	app.ai.provider = func(aiProvider) (llm.Provider, error) { return provider, nil }
 }
 
 // collectEvents drains events until until matches, returning everything read.

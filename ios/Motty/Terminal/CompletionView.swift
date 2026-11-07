@@ -107,7 +107,11 @@ struct CompletionView: View {
     private func complete(derive: Bool = false) {
         loading = true
         let provided = typedLine.isEmpty ? nil : typedLine
-        bridge.complete(sessionID: sessionID, line: derive ? nil : provided) { result in
+        bridge.complete(
+            sessionID: sessionID,
+            line: derive ? nil : provided,
+            locale: AppLanguage.effectiveLocale.identifier
+        ) { result in
             loading = false
             switch result {
             case .success(let completion):

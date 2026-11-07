@@ -603,7 +603,7 @@ func (m *syncManager) mergeRemote(remote backup.Document, missing bool) (*backup
 		}
 	}
 	if secretsChanged {
-		app.ai.settings.reloadKey()
+		app.ai.settings.reloadKeys()
 	}
 	if err := app.mergeKnownHosts(remote.KnownHosts); err != nil {
 		return nil, err
@@ -981,7 +981,7 @@ func (a *App) applyBackupDocument(document backup.Document) (map[string]any, err
 			return nil, errorf(CodeInternal, "cannot save the secrets from the backup: %v", err)
 		}
 	}
-	a.ai.settings.reloadKey()
+	a.ai.settings.reloadKeys()
 	return map[string]any{
 		"hosts":   len(a.hosts.list()),
 		"records": len(entries),

@@ -369,10 +369,15 @@ func (s *session) dialConfig() (sshconn.Config, error) {
 	for _, jump := range jumps {
 		policies[jump] = authentication
 	}
+	proxy, err := hostProxyFor(s.manager.data, host)
+	if err != nil {
+		return sshconn.Config{}, err
+	}
 	config := sshconn.Config{
 		Host:           host.Address,
 		Port:           host.Port,
 		User:           host.User,
+		Proxy:          proxy,
 		ProxyJumps:     jumps,
 		KnownHostsPath: filepath.Join(s.manager.dataDir, "known_hosts"),
 		IdentityFiles:  identities,

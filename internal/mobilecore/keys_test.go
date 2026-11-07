@@ -10,6 +10,8 @@ import (
 	"testing"
 
 	"golang.org/x/crypto/ssh"
+
+	"motty/internal/sshconn"
 )
 
 func testPrivateKey(t *testing.T, passphrase string) []byte {
@@ -92,6 +94,77 @@ func TestKeyStoreEncryptedKeyNeedsPassphrase(t *testing.T) {
 	}
 	if info.PublicKey == "" {
 		t.Fatal("public half of an encrypted key was not recovered")
+	}
+}
+
+// A host carries three kinds of identity: this app's vault reference, the
+// desktop's key fingerprint (a synced host) and the file an SSH config named.
+// The key store has to turn the last two into a vault reference, or the
+// connection has no key to offer.
+func TestKeyStoreResolvesHostIdentities(t *testing.T) {
+	app, err := Start(Config{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Close()
+
+	info, err := app.keys.importKey("id_ed25519", testPrivateKey(t, ""), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Fingerprint == "" {
+		t.Fatal("the imported key has no fingerprint")
+	}
+	if got := app.keys.resolveIdentity(info.Fingerprint); got != info.Path {
+		t.Fatalf("fingerprint resolved to %q, want %q", got, info.Path)
+	}
+	if got := app.keys.resolveIdentity("/Users/me/.ssh/id_ed25519"); got != info.Path {
+		t.Fatalf("config path resolved to %q, want %q", got, info.Path)
+	}
+	if got := app.keys.resolveIdentity("SHA256:nothing"); got != "SHA256:nothing" {
+		t.Fatalf("an unknown identity changed to %q", got)
+	}
+
+	// A host synced from the desktop names the key by fingerprint and uses the
+	// private-key policy: the client must be handed the vault reference.
+	synced, err := app.hosts.save(Host{
+		Label: "synced", Address: "synced.example.com", User: "root",
+		Auth: AuthKey, Identity: info.Fingerprint,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, err := (&session{host: synced, manager: app.sessions}).dialConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy := config.Authentication[sshconn.Endpoint{Host: synced.Address, Port: synced.Port, User: synced.User}]
+	if len(policy.IdentityFiles) != 1 || policy.IdentityFiles[0] != info.Path {
+		t.Fatalf("key policy identities = %v, want [%s]", policy.IdentityFiles, info.Path)
+	}
+	if len(policy.AdditionalIdentityFiles) != 0 {
+		t.Fatalf("key mode also tried %v", policy.AdditionalIdentityFiles)
+	}
+
+	// A host imported from an SSH config names a file this device does not
+	// have; automatic mode still tries every saved key.
+	imported, err := app.hosts.save(Host{
+		Label: "imported", Address: "imported.example.com", User: "root",
+		Identity: "/Users/me/.ssh/id_ed25519",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, err = (&session{host: imported, manager: app.sessions}).dialConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy = config.Authentication[sshconn.Endpoint{Host: imported.Address, Port: imported.Port, User: imported.User}]
+	if len(policy.IdentityFiles) != 1 || policy.IdentityFiles[0] != info.Path {
+		t.Fatalf("automatic identities = %v, want [%s]", policy.IdentityFiles, info.Path)
+	}
+	if len(policy.AdditionalIdentityFiles) != 0 {
+		t.Fatalf("the selected key was tried twice: %v", policy.AdditionalIdentityFiles)
 	}
 }
 

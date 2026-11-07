@@ -18,11 +18,12 @@ import (
 // keyInfo is the front end's view of one imported private key. Path is what a
 // host's Identity field stores: an sshkey: reference into the vault.
 type keyInfo struct {
-	Name      string `json:"name"`
-	Path      string `json:"path"`
-	PublicKey string `json:"publicKey,omitempty"`
-	Encrypted bool   `json:"encrypted"`
-	CreatedAt int64  `json:"createdAt"`
+	Name        string `json:"name"`
+	Path        string `json:"path"`
+	PublicKey   string `json:"publicKey,omitempty"`
+	Fingerprint string `json:"fingerprint,omitempty"`
+	Encrypted   bool   `json:"encrypted"`
+	CreatedAt   int64  `json:"createdAt"`
 }
 
 // storedKey is what the vault holds under an sshkey: reference, byte for byte
@@ -120,12 +121,61 @@ func inspectKey(name, path string, data []byte) (keyInfo, error) {
 		if errors.As(err, &missing) {
 			info.Encrypted = true
 			info.PublicKey = marshalPublicKey(missing.PublicKey)
+			info.Fingerprint = fingerprint(missing.PublicKey)
 			return info, nil
 		}
 		return keyInfo{}, errorf(CodeInternal, "the key is damaged: %v", err)
 	}
 	info.PublicKey = marshalPublicKey(signer.PublicKey())
+	info.Fingerprint = fingerprint(signer.PublicKey())
 	return info, nil
+}
+
+func fingerprint(key ssh.PublicKey) string {
+	if key == nil {
+		return ""
+	}
+	return ssh.FingerprintSHA256(key)
+}
+
+// resolveIdentity maps what a host's Identity names to an identity the SSH
+// client can load. This app writes a vault reference there. A host synced from
+// the desktop names the key by fingerprint, and one imported from an SSH config
+// names the file it pointed at; the saved keys answer both, by fingerprint and
+// by the file's name. An identity nothing matches is returned unchanged, so a
+// path that does exist still works.
+func (s *keyStore) resolveIdentity(identity string) string {
+	identity = strings.TrimSpace(identity)
+	if identity == "" || sshconn.IsStoredKey(identity) {
+		return identity
+	}
+	base := identity
+	if index := strings.LastIndexByte(base, '/'); index >= 0 {
+		base = base[index+1:]
+	}
+	base = strings.Trim(strings.TrimSpace(base), `"'`)
+	for _, info := range s.list() {
+		if info.Path == identity || info.Fingerprint != "" && info.Fingerprint == identity {
+			return info.Path
+		}
+		if base != "" && base == info.Name {
+			return info.Path
+		}
+	}
+	return identity
+}
+
+// identityPaths lists every key this app holds, in the order the SSH client
+// should try them when a host names no specific key.
+func (s *keyStore) identityPaths() []string {
+	infos := s.list()
+	paths := make([]string, 0, len(infos))
+	for _, info := range infos {
+		if info.Path != "" {
+			paths = append(paths, info.Path)
+		}
+	}
+	return paths
 }
 
 func marshalPublicKey(key ssh.PublicKey) string {

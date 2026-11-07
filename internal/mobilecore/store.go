@@ -25,9 +25,20 @@ import (
 // hosts.json, keys/ and the API key in ai.json are what earlier builds of this
 // app wrote. They are read once, imported, and left in place as a backup.
 
-// configFormat is the configstore epoch the desktop application reads and
-// writes. A file from a newer build is refused instead of being damaged.
+// configFormat is the configstore epoch this app writes and the format it
+// stamps its own records and uploads with. A local file from a newer build is
+// refused instead of being damaged.
 const configFormat = 23
+
+// maxBackupFormat is the newest document epoch the automatic sync takes in.
+// The desktop release line moves ahead of this tree (0.3.6 writes 25), and a
+// phone that refuses those backups cannot sync with it. Taking them in is
+// safe: the app never rewrites the parts of a record it does not model (a host
+// is saved as a field patch over the stored object, every other record kind
+// travels as it arrived), so fields a newer epoch added are kept. The sync
+// still stops here because an epoch this app has never seen may change a
+// structure it does rewrite; a manual restore does not consult this ceiling.
+const maxBackupFormat = 25
 
 // kinds of the records this app writes. They match the desktop's.
 const (

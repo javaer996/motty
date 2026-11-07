@@ -27,6 +27,9 @@ final class TerminalUIView: UIView, UIKeyInput {
     private var buffer = [UInt8](repeating: 0, count: 512 * 1024)
     private var currentCols = 0
     private var currentRows = 0
+    private var pendingCols = 0
+    private var pendingRows = 0
+    private var resizeWork: DispatchWorkItem?
     private var inputBar: TerminalInputBar?
 
     /// Inline command completion: a debounced question to the core after every
@@ -112,7 +115,10 @@ final class TerminalUIView: UIView, UIKeyInput {
         super.init(frame: .zero)
         isOpaque = true
         backgroundColor = terminalBackground
-        contentMode = .redraw
+        // Not .redraw: while the keyboard slides, UIKit then moves the last
+        // painted bitmap instead of asking for a full text repaint on every
+        // intermediate height. The final grid triggers its own repaint.
+        contentMode = .top
         computeCellSize()
 
         let tap = UITapGestureRecognizer(target: self, action: #selector(focus))
@@ -179,6 +185,7 @@ final class TerminalUIView: UIView, UIKeyInput {
 
     deinit {
         displayLink?.invalidate()
+        resizeWork?.cancel()
     }
 
     func start() {
@@ -198,6 +205,8 @@ final class TerminalUIView: UIView, UIKeyInput {
     func stop() {
         displayLink?.invalidate()
         displayLink = nil
+        resizeWork?.cancel()
+        resizeWork = nil
     }
 
     private func computeCellSize() {
@@ -209,17 +218,48 @@ final class TerminalUIView: UIView, UIKeyInput {
         cellHeight = ceil(regularFont.lineHeight)
     }
 
+    /// Space kept empty below the last row. The keyboard's safe-area change
+    /// slides this view under the home indicator when the keyboard is away, so
+    /// that area is reserved: without it the prompt and cursor sit under the
+    /// indicator. With the keyboard up the view already ends above the input
+    /// bar; the small gap keeps the last line from touching it.
+    private var bottomMargin: CGFloat {
+        max(safeAreaInsets.bottom, 0) + 4
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
         guard bounds.width > 0, bounds.height > 0 else { return }
-        let cols = max(1, Int(bounds.width / cellWidth))
-        let rows = max(1, Int(bounds.height / cellHeight))
-        guard cols != currentCols || rows != currentRows else { return }
-        currentCols = cols
-        currentRows = rows
-        bridge?.resize(sessionID: sessionID, cols: cols, rows: rows)
         bottomButton.frame = CGRect(x: bounds.width - 48, y: 8, width: 34, height: 34)
         copySelectionButton.frame = CGRect(x: bounds.width - 48, y: 50, width: 34, height: 34)
+
+        let usable = max(0, bounds.height - bottomMargin)
+        let cols = max(1, Int(bounds.width / cellWidth))
+        let rows = max(1, Int(usable / cellHeight))
+        guard cols != pendingCols || rows != pendingRows else { return }
+        pendingCols = cols
+        pendingRows = rows
+        // The keyboard animates this view's height over a quarter of a second.
+        // Resizing the pty on every intermediate frame makes the shell redraw
+        // the whole screen again and again, which is the stutter the keyboard
+        // coming and going used to have. One resize after the size settles is
+        // enough; the old snapshot stays on screen (clipped) meanwhile.
+        resizeWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.commitResize() }
+        resizeWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: work)
+    }
+
+    private func commitResize() {
+        resizeWork = nil
+        guard pendingCols > 0, pendingRows > 0 else { return }
+        guard pendingCols != currentCols || pendingRows != currentRows else { return }
+        currentCols = pendingCols
+        currentRows = pendingRows
+        bridge?.resize(sessionID: sessionID, cols: pendingCols, rows: pendingRows)
+        // contentMode keeps the old drawing through the animation; repaint
+        // once the grid is final even if the shell sends nothing back.
+        setNeedsDisplay()
     }
 
     // MARK: Scrolling

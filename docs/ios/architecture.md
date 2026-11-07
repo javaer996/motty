@@ -224,6 +224,12 @@ rectCount × 16 bytes:
   用于扩展选区。
 - 复制：长按进入选区，拖动扩展，点浮动复制按钮或键盘条 Copy 复制选中单元格；未选中时复制整屏。
 - 链接：`term.LinksAt`。
+- 键盘与尺寸：终端只忽略底部容器安全区（`.ignoresSafeArea(.container, edges: .bottom)`），
+  SwiftUI 的键盘 inset 仍然生效（含 84 pt 输入条），整个视图随键盘上移。绘制视图的
+  `contentMode = .top`，UIKit 在 bounds 连续变化时先平移旧位图，不必逐帧全量重绘；
+  pty 的列/行在布局稳定 120 ms 后才提交 `sessions.resize`，避免键盘动画每一帧都触发
+  SIGWINCH 与整屏重排。pty 行数按 `bounds.height - (safeAreaInsets.bottom + 4)` 计算，
+  键盘收起时最后一行不会被 home indicator 遮住。
 
 ### 5.3 输入
 
@@ -332,7 +338,7 @@ rectCount × 16 bytes:
 
 | 文件 | 内容 |
 | --- | --- |
-| `config.db` | configstore（SQLite，format 23）；主机记录 kind `host`，payload `{"o": ord, "d": savedHost}` |
+| `config.db` | configstore（SQLite，format 23）；主机记录 kind `host`，payload `{"o": ord, "d": savedHost}`；可读入桌面 0.3.6 的 format 25 备份（`maxBackupFormat`） |
 | `vault.json` | 加密 secrets；数据密钥存 Keychain（`kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`） |
 | `known_hosts` | OpenSSH known_hosts（`internal/knownhosts`） |
 | `session-logs.db` / `history.db` | 会话日志、命令历史（SQLite） |
@@ -345,10 +351,11 @@ rectCount × 16 bytes:
 - 主机 ID 使用桌面确定性 `catalogIDFor`（address/user/port[/protocol] 的 SHA-256，`host_` + 24 hex），同一服务器在 iOS 与桌面合并为一条。
 - `savedHost` 的全部桌面字段往返保留；保存时对既有 record 做 map 补丁，未知字段不丢。
 - vault 键：`sshkey:<hex>`（值 `{"name","key"}`）、`passphrase:<sshkey ref>`、`aikey:<provider id>`、`host:<catalogID>:password|otp`、`host-proxy:<catalogID>:<hash>:password`、`webdav:password`、`s3:secret`、`gist:token`、`backup:password`。
-- 私钥可从 Files 导入，也可直接粘贴 OpenSSH/PEM 文本；两种方式都写入 `vault.json`，与桌面版同样加密。
+- 私钥可从 Files 导入，也可直接粘贴 OpenSSH/PEM 文本；两种方式都写入 `vault.json`，与桌面版同样加密。主机记录的 `identity` 有三种来源：本应用写入的 `sshkey:` vault 引用、桌面同步主机的私钥指纹（`SHA256:...`）、SSH config 导入的文件路径。建连时 `keyStore.resolveIdentity` 先按指纹、再按路径的文件名匹配已保存的 key，统一换成 vault 引用；匹配不到的原样保留。Automatic 模式先试选中的 key 再试全部已保存 key，Key 模式没有选中项时也试全部已保存 key。
 - 主机密码只存 vault：编辑主机时可输入/删除；主机保存为私钥或 Agent 认证时自动删除旧密码；删除主机同时删除其 password/otp。连接首次出现密码提示且 vault 有对应密码时自动提交，服务器拒绝后删除该密码并改为询问用户；用户在提示中勾选“保存密码”时，仅在认证成功后写入 vault。
 - 启动迁移幂等：旧 `hosts.json` → config.db（ID 改为 catalog ID，冲突加后缀）；旧 `keys/` 文件 → vault；`ai.json` 中的明文 API key → vault。旧文件保留，可回退。
 - 备份：`backup.Seal`（Argon2id + AES-256-GCM，envelope v2，密码 ≥8 字符），文档含 records（含 tombstone）、known_hosts、secrets，排除同步凭据自身。恢复前生成 `config.db.before-restore`。
+- 桌面发布线（0.3.6）的文档 format 已到 25，而本树 `configFormat` 仍为 23：iOS 写入与上传仍标 23；自动同步可读入至 `maxBackupFormat = 25`，更高的 epoch 以 `ErrTooNew` 拒绝；**手动恢复（从服务器或本地文件）不检查文档 epoch**，任何版本的文档都直接应用，因为内部记录原样保存、host 保存时对既有 payload 做字段补丁，新 epoch 增加的字段不会丢失。
 - 同步：下载远端文件 → `backup.Open` → configstore/vault/known_hosts 合并 → 只有本地更新时才 `Seal` + `Put`；ETag/条件写，`ErrChanged` 最多重试 4 次；tombstone 保留 90 天；数据变化 5 秒防抖，失败指数退避 30 秒 → 30 分钟。
 - Swift 端 `scenePhase == .active` 时补一次同步（自动模式）；同步期间用 `beginBackgroundTask` 争取短暂后台时间。
 - 文件导入导出：`UIDocumentPicker` / Share Sheet；SFTP 下载到沙盒 `downloads/`，可导出到 Files。

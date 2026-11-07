@@ -567,7 +567,7 @@ func (m *syncManager) round(ctx context.Context, store cloudsync.Store, backupPa
 // when the server already holds everything here.
 func (m *syncManager) mergeRemote(remote backup.Document, missing bool) (*backup.Document, error) {
 	app := m.app
-	if remote.Format > configFormat {
+	if remote.Format > maxBackupFormat {
 		return nil, backup.ErrTooNew
 	}
 	if _, err := app.data.vault.Export(); err != nil {
@@ -924,12 +924,15 @@ func (a *App) restoreBackupFile(path, password string) (map[string]any, error) {
 // applyBackupDocument replaces the shared records with the document's, adds its
 // known hosts and saves its secrets. The database it replaces is kept as
 // config.db.before-restore.
+//
+// A restore is the user's explicit "take this copy", so the document's format
+// epoch is not a gate: the automatic sync may stop at maxBackupFormat, but a
+// restore takes whatever the server or the picked file holds. Every record is
+// stored as it arrived, and a host is later saved as a field patch over the
+// stored object, so fields a newer epoch added survive.
 func (a *App) applyBackupDocument(document backup.Document) (map[string]any, error) {
 	if a.sync != nil && a.sync.busy() {
 		return nil, errorf(CodeConflict, "a sync is in progress; try again when it finishes")
-	}
-	if document.Format > configFormat {
-		return nil, errorf(CodeBadRequest, "the backup was made by a newer version of Motty")
 	}
 	entries := make([]configstore.Entry, 0, len(document.Records))
 	live := make(map[configstore.Key]bool, len(document.Records))

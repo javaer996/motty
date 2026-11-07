@@ -353,15 +353,48 @@ func (s *session) dialConfig() (sshconn.Config, error) {
 	if err != nil {
 		return sshconn.Config{}, err
 	}
-	identities := []string{}
-	if host.Identity != "" {
-		identities = []string{host.Identity}
-	}
 	methods, agent := authPolicy(host.Auth)
+	identities, additional := []string{}, []string{}
+	if keys := s.manager.keys; keys != nil && host.Auth != AuthPassword && host.Auth != AuthAgent {
+		selected := ""
+		if host.Identity != "" {
+			// The app itself stores a vault reference; a synced desktop host
+			// stores a key fingerprint and an imported SSH config a file path.
+			// resolveIdentity turns all three into something the key store can
+			// hand to the SSH client.
+			selected = keys.resolveIdentity(host.Identity)
+			identities = []string{selected}
+		}
+		switch host.Auth {
+		case AuthKey:
+			// Key mode with no chosen key tries every saved key, like the
+			// desktop; an empty (not nil) list also keeps the ~/.ssh defaults
+			// that this app does not have from being probed.
+			if selected == "" {
+				identities = []string{}
+				additional = keys.identityPaths()
+			}
+		default:
+			// Automatic tries the chosen key first, then every other saved key,
+			// so an imported config whose key was imported under another name
+			// still connects.
+			additional = keys.identityPaths()
+		}
+		if selected != "" {
+			kept := additional[:0]
+			for _, path := range additional {
+				if path != selected {
+					kept = append(kept, path)
+				}
+			}
+			additional = kept
+		}
+	}
 	authentication := sshconn.Authentication{
-		Methods:       methods,
-		IdentityFiles: identities,
-		Agent:         agent,
+		Methods:                 methods,
+		IdentityFiles:           identities,
+		AdditionalIdentityFiles: additional,
+		Agent:                   agent,
 	}
 	policies := map[sshconn.Endpoint]sshconn.Authentication{}
 	target := sshconn.Endpoint{Host: host.Address, Port: host.Port, User: host.User}
@@ -374,16 +407,17 @@ func (s *session) dialConfig() (sshconn.Config, error) {
 		return sshconn.Config{}, err
 	}
 	config := sshconn.Config{
-		Host:           host.Address,
-		Port:           host.Port,
-		User:           host.User,
-		Proxy:          proxy,
-		ProxyJumps:     jumps,
-		KnownHostsPath: filepath.Join(s.manager.dataDir, "known_hosts"),
-		IdentityFiles:  identities,
-		Agent:          agent,
-		Authentication: policies,
-		DialTimeout:    dialTimeout,
+		Host:                    host.Address,
+		Port:                    host.Port,
+		User:                    host.User,
+		Proxy:                   proxy,
+		ProxyJumps:              jumps,
+		KnownHostsPath:          filepath.Join(s.manager.dataDir, "known_hosts"),
+		IdentityFiles:           identities,
+		AdditionalIdentityFiles: additional,
+		Agent:                   agent,
+		Authentication:          policies,
+		DialTimeout:             dialTimeout,
 		KeepAlive: sshconn.KeepAliveConfig{
 			Interval: 30 * time.Second,
 			Timeout:  10 * time.Second,

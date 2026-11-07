@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,7 +12,9 @@ import (
 	"testing"
 	"time"
 
+	"motty/internal/backup"
 	"motty/internal/cloudsync"
+	"motty/internal/configstore"
 )
 
 // fakeCloud is one remote file in memory.
@@ -300,6 +303,91 @@ func TestSyncMergesHostsAndSecrets(t *testing.T) {
 	cloud.mu.Unlock()
 	if after != before {
 		t.Fatalf("an idle sync uploaded %d times", after-before)
+	}
+}
+
+// The desktop release line has moved its record epoch past this tree. The
+// automatic sync takes the newer epochs in, and a manual restore takes any
+// document at all: refusing an epoch would leave the phone unable to bring the
+// desktop's copy over.
+func TestSyncTakesANewerDesktopBackup(t *testing.T) {
+	cloud := &fakeCloud{}
+	app := syncTestApp(t, cloud)
+
+	if saved := callApp(t, app, "hosts.save", `{"label":"server","address":"server.example.com","user":"root"}`); !saved.OK {
+		t.Fatal(saved.Error)
+	}
+	document, err := app.backupDocument()
+	if err != nil {
+		t.Fatal(err)
+	}
+	password, found, err := app.data.secretGet(backupPasswordSecret)
+	if err != nil || !found {
+		t.Fatalf("the sync backup password is missing: %v", err)
+	}
+	document.Format = maxBackupFormat
+	// A record kind and fields this app does not model must travel intact.
+	stamp, err := app.data.config.NextStamp()
+	if err != nil {
+		t.Fatal(err)
+	}
+	future := configstore.Record{
+		Kind: "workspace-template", ID: "future", Stamp: stamp,
+		Payload: []byte(`{"d":{"new_field":true}}`),
+	}
+	document.Records = append(document.Records, future)
+	sealed, err := backup.Seal(document, password)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cloud.mu.Lock()
+	cloud.data, cloud.tag = sealed, "tag-newer"
+	cloud.mu.Unlock()
+
+	// The ordinary sync takes the document in.
+	startSync(t, app)
+	if hostCount(t, app) != 1 {
+		t.Fatalf("the sync did not apply the newer document: %d hosts", hostCount(t, app))
+	}
+
+	// Restore opens it as well.
+	if restored := callApp(t, app, "sync.restore", ""); !restored.OK {
+		t.Fatalf("restore of a newer-era backup failed: %+v", restored.Error)
+	}
+	records, err := app.data.config.Records()
+	if err != nil {
+		t.Fatal(err)
+	}
+	carried := false
+	for _, record := range records {
+		if record.Kind == future.Kind && record.ID == future.ID {
+			carried = string(record.Payload) == string(future.Payload)
+		}
+	}
+	if !carried {
+		t.Fatal("a record this app does not model was not carried through")
+	}
+
+	// A manual restore does not stop at the sync's ceiling.
+	document.Format = maxBackupFormat + 100
+	sealed, err = backup.Seal(document, password)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cloud.mu.Lock()
+	cloud.data, cloud.tag = sealed, "tag-newest"
+	cloud.mu.Unlock()
+	if restored := callApp(t, app, "sync.restore", ""); !restored.OK {
+		t.Fatalf("restore refused a backup from an unknown epoch: %+v", restored.Error)
+	}
+	if hostCount(t, app) != 1 {
+		t.Fatalf("the restore left %d hosts", hostCount(t, app))
+	}
+
+	// The background sync still stops at the newest epoch it knows how to
+	// merge, so an unseen structure is never taken in without the user.
+	if _, err := app.sync.mergeRemote(backup.Document{Format: maxBackupFormat + 100}, false); !errors.Is(err, backup.ErrTooNew) {
+		t.Fatalf("the automatic sync took an unknown epoch: %v", err)
 	}
 }
 

@@ -171,6 +171,32 @@ func TestScrollbackCollectsLinesThatLeaveTheTop(t *testing.T) {
 	}
 }
 
+func TestScrollToUsesAnAbsoluteClampedOffset(t *testing.T) {
+	term := newTerm(6, 3)
+	for i := 1; i <= 5; i++ {
+		feed(term, fmt.Sprintf("line%d\r\n", i))
+	}
+	if !term.ScrollTo(1) {
+		t.Fatal("ScrollTo(1) did not move the view")
+	}
+	if got := term.ViewOffset(); got != 1 {
+		t.Fatalf("view offset = %d, want 1", got)
+	}
+	expectText(t, term, "line3\nline4\nline5")
+	if term.ScrollTo(1) {
+		t.Fatal("ScrollTo reported a move to the same offset")
+	}
+	term.ScrollTo(99)
+	if got := term.ViewOffset(); got != 3 {
+		t.Fatalf("view offset = %d after overscroll, want the history end 3", got)
+	}
+	term.ScrollTo(-4)
+	if got := term.ViewOffset(); got != 0 {
+		t.Fatalf("view offset = %d after underscroll, want 0", got)
+	}
+	expectText(t, term, "line4\nline5")
+}
+
 func TestClearScreenKeepsThePromptLineAndDropsEverythingAboveIt(t *testing.T) {
 	terminal := New(16, 4, 20)
 	for i := 0; i < 8; i++ {

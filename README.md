@@ -165,7 +165,7 @@ Replacing a file stages a partial copy, verifies resumed prefixes and renames
 atomically only after a complete synced copy. The previous file stays intact on
 failure.
 
-A native editor opens UTF-8 files up to 1 MiB, hashes the remote file before and
+A native editor opens UTF-8 files up to 8 MiB, hashes the remote file before and
 after staging, and preserves permissions. Servers without SFTP can use the
 built-in SCP fallback. It edits code in a fixed-pitch grid with line numbers,
 syntax colors, bracket matching, soft wrap, auto-indent that follows the file's

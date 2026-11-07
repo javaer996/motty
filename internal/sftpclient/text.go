@@ -12,7 +12,12 @@ import (
 	"unicode/utf8"
 )
 
-const MaxEditFileBytes = 1 << 20
+// MaxEditFileBytes is the largest file the built-in text editor loads. It is
+// deliberately finite: the whole document lives in memory as a Go string, a
+// JSON payload and a native text view, so an unbounded file could exhaust a
+// phone. Eight MiB covers source, Markdown, JSON and configuration files with
+// room to spare without making a stray binary freeze the app.
+const MaxEditFileBytes = 8 << 20
 
 const MaxPreviewFileBytes = 16 << 20
 
@@ -27,7 +32,7 @@ func editSizeError(limit int) error {
 }
 
 var (
-	ErrEditFileTooLarge    = errors.New("sftp: remote text file exceeds 1 MiB")
+	ErrEditFileTooLarge    = errors.New("sftp: remote text file exceeds 8 MiB")
 	ErrUnsupportedEncoding = errors.New("sftp: remote file is not UTF-8 text")
 	ErrRemoteChanged       = errors.New("sftp: remote file changed since it was opened")
 )

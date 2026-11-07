@@ -968,7 +968,7 @@ var TraditionalMessages = Messages{
 	SFTPEditSave:                "儲存到遠端",
 	SFTPEditReload:              "重新載入",
 	SFTPEditLabel:               "遠端檔案內容",
-	SFTPEditSafety:              "僅 UTF-8 文字 · 最大 1 MiB · 衝突檢查後原子儲存",
+	SFTPEditSafety:              "僅 UTF-8 文字 · 最大 8 MiB · 衝突檢查後原子儲存",
 	SFTPEditReady:               "已開啟遠端檔案",
 	SFTPEditDirty:               "有未儲存的修改",
 	SFTPEditSaving:              "正在原子儲存遠端檔案…",

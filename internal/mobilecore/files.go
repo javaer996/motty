@@ -1,7 +1,9 @@
 package mobilecore
 
 import (
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -177,32 +179,128 @@ func (f *filesSession) list(remotePath string) ([]fileEntry, error) {
 	}
 }
 
-// simple waits for one non-transfer operation. Callers are serialized; a late
-// result from a timed-out request is dropped before submitting the next one.
-func (f *filesSession) simple(description string, submit func() bool) error {
+// operation waits for one non-transfer request. Callers are serialized; a
+// late result from a timed-out request is dropped before submitting the next
+// one. The raw result is returned so document requests can keep their text
+// and revision.
+func (f *filesSession) operation(submit func() bool) (sftpclient.Result, error) {
 	f.opMu.Lock()
 	defer f.opMu.Unlock()
-	select {
-	case <-f.ops:
-	default:
+	for {
+		select {
+		case <-f.ops:
+			continue
+		default:
+		}
+		break
 	}
 	f.mu.Lock()
 	closed := f.closed
 	f.mu.Unlock()
 	if closed {
-		return errorf(CodeUnavailable, "the file session is closed")
+		return sftpclient.Result{}, errorf(CodeUnavailable, "the file session is closed")
 	}
 	if !submit() {
-		return errorf(CodeUnavailable, "the file session is not accepting requests")
+		return sftpclient.Result{}, errorf(CodeUnavailable, "the file session is not accepting requests")
 	}
 	select {
 	case result := <-f.ops:
-		if result.Err != nil {
-			return errorf(CodeUnavailable, "%s: %v", description, result.Err)
-		}
-		return nil
+		return result, result.Err
 	case <-time.After(filesTimeout):
-		return errorf(CodeUnavailable, "%s timed out", description)
+		return sftpclient.Result{}, errorf(CodeUnavailable, "the file operation timed out")
+	}
+}
+
+// simple waits for one non-transfer operation and translates its failure into
+// the message the front end shows.
+func (f *filesSession) simple(description string, submit func() bool) error {
+	_, err := f.operation(submit)
+	if err == nil {
+		return nil
+	}
+	if _, ok := err.(*RPCError); ok {
+		return err
+	}
+	return errorf(CodeUnavailable, "%s: %v", description, err)
+}
+
+// openText reads one UTF-8 text file through the same bounded editor path the
+// desktop app uses. It refuses binary and oversized files before they reach
+// the phone.
+func (f *filesSession) openText(remotePath string) (sftpclient.TextDocument, error) {
+	result, err := f.operation(func() bool {
+		return f.worker.OpenText(remotePath)
+	})
+	if err != nil {
+		return sftpclient.TextDocument{}, textDocumentError("cannot read the file", err)
+	}
+	return result.Document, nil
+}
+
+// saveText replaces a file only when it still matches the revision the user
+// opened, so two editors never silently overwrite each other.
+func (f *filesSession) saveText(remotePath, value string, revision sftpclient.Revision, utf8BOM bool) (sftpclient.TextDocument, error) {
+	result, err := f.operation(func() bool {
+		return f.worker.SaveText(remotePath, value, revision, utf8BOM)
+	})
+	if err != nil {
+		return sftpclient.TextDocument{}, textDocumentError("cannot save the file", err)
+	}
+	return result.Document, nil
+}
+
+// createFile creates an empty remote file. It never replaces an existing
+// path: the editor is opened only after the server confirms the creation.
+func (f *filesSession) createFile(remotePath string) error {
+	_, err := f.operation(func() bool {
+		return f.worker.CreateFile(remotePath)
+	})
+	if err == nil {
+		return nil
+	}
+	switch {
+	case errors.Is(err, sftpclient.ErrExists):
+		return errorf(CodeConflict, "a file with that name already exists")
+	case errors.Is(err, sftpclient.ErrUnsupported):
+		return errorf(CodeUnsupported, "this server does not support creating files")
+	default:
+		return errorf(CodeUnavailable, "cannot create the file: %v", err)
+	}
+}
+
+// textDocumentError maps the editor's sentinel errors to codes the phone can
+// explain in its own language instead of showing desktop-oriented wording.
+func textDocumentError(action string, err error) error {
+	switch {
+	case errors.Is(err, sftpclient.ErrUnsupportedEncoding):
+		return errorf(CodeNotText, "only UTF-8 text files can be edited")
+	case errors.Is(err, sftpclient.ErrEditFileTooLarge):
+		return errorf(CodeTooLarge, "text files larger than 8 MiB cannot be edited")
+	case errors.Is(err, sftpclient.ErrSCPNoEdit):
+		return errorf(CodeUnsupported, "this server does not support saving edits")
+	case errors.Is(err, sftpclient.ErrRemoteChanged):
+		return errorf(CodeConflict, "the file changed on the server")
+	case errors.Is(err, sftpclient.ErrNotRegularFile):
+		return errorf(CodeUnsupported, "only regular files can be edited")
+	default:
+		return errorf(CodeUnavailable, "%s: %v", action, err)
+	}
+}
+
+// remoteTextDocument is the JSON shape of the editor document.
+type remoteTextDocument struct {
+	Text     string `json:"text"`
+	Revision string `json:"revision"`
+	BOM      bool   `json:"bom"`
+	Size     int    `json:"size"`
+}
+
+func exportTextDocument(document sftpclient.TextDocument) remoteTextDocument {
+	return remoteTextDocument{
+		Text:     document.Text,
+		Revision: hex.EncodeToString(document.Revision[:]),
+		BOM:      document.UTF8BOM,
+		Size:     len(document.Text),
 	}
 }
 
@@ -514,6 +612,23 @@ func (a *App) callFiles(method string, params json.RawMessage) (bool, any, error
 			return true, nil, errorf(CodeUnavailable, "the file session is not accepting transfers")
 		}
 		return true, map[string]any{"transferId": id}, nil
+	case "files.create":
+		var request struct {
+			SessionID uint32 `json:"sessionId"`
+			Path      string `json:"path"`
+		}
+		if err := decodeParams(params, &request); err != nil {
+			return true, nil, err
+		}
+		if strings.TrimSpace(request.Path) == "" {
+			return true, nil, errorf(CodeBadRequest, "a path is required")
+		}
+		files, err := a.filesFor(request.SessionID)
+		if err != nil {
+			return true, nil, err
+		}
+		err = files.createFile(request.Path)
+		return true, map[string]bool{"created": err == nil}, err
 	case "files.mkdir":
 		var request struct {
 			SessionID uint32 `json:"sessionId"`
@@ -620,6 +735,62 @@ func (a *App) callFiles(method string, params json.RawMessage) (bool, any, error
 			return files.worker.Symlink(request.LinkPath, request.Target)
 		})
 		return true, map[string]bool{"created": err == nil}, err
+	case "files.openText":
+		var request struct {
+			SessionID uint32 `json:"sessionId"`
+			Path      string `json:"path"`
+		}
+		if err := decodeParams(params, &request); err != nil {
+			return true, nil, err
+		}
+		if strings.TrimSpace(request.Path) == "" {
+			return true, nil, errorf(CodeBadRequest, "a path is required")
+		}
+		files, err := a.filesFor(request.SessionID)
+		if err != nil {
+			return true, nil, err
+		}
+		document, err := files.openText(request.Path)
+		if err != nil {
+			return true, nil, err
+		}
+		return true, exportTextDocument(document), nil
+	case "files.saveText":
+		var request struct {
+			SessionID uint32 `json:"sessionId"`
+			Path      string `json:"path"`
+			Text      string `json:"text"`
+			Revision  string `json:"revision"`
+			BOM       bool   `json:"bom"`
+		}
+		if err := decodeParams(params, &request); err != nil {
+			return true, nil, err
+		}
+		if strings.TrimSpace(request.Path) == "" {
+			return true, nil, errorf(CodeBadRequest, "a path is required")
+		}
+		decoded, err := hex.DecodeString(request.Revision)
+		if err != nil || len(decoded) != len(sftpclient.Revision{}) {
+			return true, nil, errorf(CodeBadRequest, "the document revision is invalid")
+		}
+		var revision sftpclient.Revision
+		copy(revision[:], decoded)
+		size := len(request.Text)
+		if request.BOM {
+			size += 3
+		}
+		if size > sftpclient.MaxEditFileBytes {
+			return true, nil, errorf(CodeTooLarge, "text files larger than 8 MiB cannot be edited")
+		}
+		files, err := a.filesFor(request.SessionID)
+		if err != nil {
+			return true, nil, err
+		}
+		document, err := files.saveText(request.Path, request.Text, revision, request.BOM)
+		if err != nil {
+			return true, nil, err
+		}
+		return true, exportTextDocument(document), nil
 	case "files.transfers":
 		var request struct {
 			SessionID uint32 `json:"sessionId"`

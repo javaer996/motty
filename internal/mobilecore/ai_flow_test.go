@@ -145,7 +145,7 @@ func TestAIRunStreamsText(t *testing.T) {
 	if fake.requestCount() != 1 {
 		t.Fatalf("provider got %d requests, want 1", fake.requestCount())
 	}
-	if got := app.ai.history[7]; len(got) != 2 {
+	if got := app.ai.history["host-test"]; len(got) != 2 {
 		t.Fatalf("history has %d messages, want user and assistant", len(got))
 	}
 }
@@ -191,7 +191,7 @@ func TestAIRunToolCallWithoutShell(t *testing.T) {
 	if fake.requestCount() != 2 {
 		t.Fatalf("provider got %d requests, want 2", fake.requestCount())
 	}
-	history := app.ai.history[8]
+	history := app.ai.history["host-test"]
 	if len(history) < 4 {
 		t.Fatalf("history has %d messages, want the tool round too", len(history))
 	}

@@ -968,7 +968,7 @@ var ChineseMessages = Messages{
 	SFTPEditSave:                "保存到远端",
 	SFTPEditReload:              "重新加载",
 	SFTPEditLabel:               "远程文件内容",
-	SFTPEditSafety:              "仅 UTF-8 文本 · 最大 1 MiB · 冲突检查后原子保存",
+	SFTPEditSafety:              "仅 UTF-8 文本 · 最大 8 MiB · 冲突检查后原子保存",
 	SFTPEditReady:               "已打开远程文件",
 	SFTPEditDirty:               "有未保存的修改",
 	SFTPEditSaving:              "正在原子保存远程文件…",

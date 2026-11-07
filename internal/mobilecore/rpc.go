@@ -28,6 +28,10 @@ const (
 	CodeConflict    = "conflict"
 	CodeInternal    = "internal"
 	CodeUnavailable = "unavailable"
+	// File editor outcomes the phone explains with its own wording.
+	CodeUnsupported = "unsupported"
+	CodeTooLarge    = "too_large"
+	CodeNotText     = "not_text"
 )
 
 func errorf(code, format string, args ...any) *RPCError {
@@ -37,9 +41,9 @@ func errorf(code, format string, args ...any) *RPCError {
 // Envelope is what MottyCall returns: one JSON object, either a result or an
 // error, never both.
 type Envelope struct {
-	OK     bool            `json:"ok"`
-	Result any             `json:"result,omitempty"`
-	Error  *RPCError       `json:"error,omitempty"`
+	OK     bool      `json:"ok"`
+	Result any       `json:"result,omitempty"`
+	Error  *RPCError `json:"error,omitempty"`
 }
 
 // decodeParams unmarshals params into dst. Empty params leave dst untouched,

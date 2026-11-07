@@ -361,10 +361,17 @@ func (t *Terminal) ViewOffset() int { return t.view }
 // Scroll moves the view by lines (positive goes back into history) and reports
 // whether it moved. The alternate screen has no history.
 func (t *Terminal) Scroll(lines int) bool {
+	return t.ScrollTo(t.view + lines)
+}
+
+// ScrollTo moves the view to an absolute offset from the live screen, clamped
+// to the available history, and reports whether it moved. Touch scrolling uses
+// this so several coalesced finger updates cannot overshoot each other.
+func (t *Terminal) ScrollTo(view int) bool {
 	if t.onAlt {
 		return false
 	}
-	view := clampInt(t.view+lines, 0, t.histCount)
+	view = clampInt(view, 0, t.histCount)
 	if view == t.view {
 		return false
 	}

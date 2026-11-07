@@ -78,9 +78,20 @@ final class KeyBarView: UIInputView {
     }
 
     private func makeButton(title: String) -> UIButton {
-        var configuration = UIButton.Configuration.gray()
+        // The system gray button style is translucent; terminal text behind
+        // the keyboard then shows through the key caps. Use an opaque fill so
+        // the labels stay readable over any terminal content.
+        let fill = UIColor { traits in
+            if traits.userInterfaceStyle == .dark {
+                return UIColor(red: 0.27, green: 0.275, blue: 0.30, alpha: 1)
+            }
+            return UIColor(red: 0.93, green: 0.935, blue: 0.945, alpha: 1)
+        }
+        var configuration = UIButton.Configuration.filled()
         configuration.title = title
         configuration.baseForegroundColor = .label
+        configuration.baseBackgroundColor = fill
+        configuration.background.backgroundColor = fill
         configuration.cornerStyle = .small
         configuration.contentInsets = NSDirectionalEdgeInsets(top: 2, leading: 10, bottom: 2, trailing: 10)
         configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in

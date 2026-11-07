@@ -28,7 +28,22 @@ final class TerminalUIView: UIView, UIKeyInput {
     private var currentCols = 0
     private var currentRows = 0
     private var keyBar: KeyBarView?
-    private var panRemainder: CGFloat = 0
+
+    // Scrolling is pixel-accurate under the finger while the Go terminal only
+    // stores whole-line offsets. `scrollBaseOffset` and `scrollDistance` describe
+    // the continuous offset; every frame the newest target is committed, and
+    // the difference between the snapshot and that target is drawn as a
+    // fractional translation. This keeps a fling from stepping line by line.
+    private var isPanning = false
+    private var scrollActive = false
+    private var scrollBaseOffset: CGFloat = 0
+    private var scrollDistance: CGFloat = 0
+    private var scrollVelocity: CGFloat = 0
+    private var requestedScrollOffset = 0
+    private var settleTarget: Int?
+    private var settleFrames = 0
+    private var lastVisualOffset: CGFloat = 0
+    private var lastTickTime: CFTimeInterval = 0
 
     private struct CellPosition {
         var row: Int
@@ -79,16 +94,16 @@ final class TerminalUIView: UIView, UIKeyInput {
 
         let tap = UITapGestureRecognizer(target: self, action: #selector(focus))
         addGestureRecognizer(tap)
-        let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
-        pan.maximumNumberOfTouches = 1
+        let pan = TerminalScrollPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
         addGestureRecognizer(pan)
         let longPress = UILongPressGestureRecognizer(target: self, action: #selector(handleLongPress(_:)))
         longPress.minimumPressDuration = 0.35
         longPress.cancelsTouchesInView = true
         addGestureRecognizer(longPress)
-        // A drag scrolls unless it started as a long press, which extends the
-        // selection instead.
-        pan.require(toFail: longPress)
+        // Do not make the pan wait for the long press to fail: that would add
+        // its 0.35 s minimum duration to the start of every scroll. A moving
+        // finger makes the long press fail immediately, while a still finger
+        // never starts the pan and can extend a selection.
 
         addSubview(bottomButton)
         addSubview(copySelectionButton)
@@ -115,9 +130,16 @@ final class TerminalUIView: UIView, UIKeyInput {
 
     func start() {
         let link = CADisplayLink(target: self, selector: #selector(tick))
-        link.preferredFramesPerSecond = 30
+        // Idle at a normal rate; touch scrolling raises the preferred rate to
+        // the display's maximum (120 Hz on ProMotion) in beginScroll.
+        link.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 120, preferred: 60)
         link.add(to: .main, forMode: .common)
         displayLink = link
+        lastTickTime = 0
+    }
+
+    private func setScrollFrameRate(_ rate: Float) {
+        displayLink?.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 120, preferred: rate)
     }
 
     func stop() {
@@ -149,26 +171,144 @@ final class TerminalUIView: UIView, UIKeyInput {
 
     // MARK: Scrolling
 
-    @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
+    @objc private func handlePan(_ gesture: TerminalScrollPanGestureRecognizer) {
         switch gesture.state {
         case .began:
-            panRemainder = 0
+            beginScroll()
+            // The recognizer only fires after a couple of points of motion;
+            // count that movement too so the content does not sit still until
+            // the next touch event arrives.
+            scrollDistance += gesture.translation(in: self).y
+            gesture.setTranslation(.zero, in: self)
             clearSelection()
         case .changed:
-            panRemainder += gesture.translation(in: self).y
+            scrollDistance += gesture.translation(in: self).y
             gesture.setTranslation(.zero, in: self)
-            let lines = Int(panRemainder / cellHeight)
-            guard lines != 0 else { return }
-            panRemainder -= CGFloat(lines) * cellHeight
-            // Dragging down reveals earlier output.
-            bridge?.scroll(sessionID: sessionID, lines: lines)
+        case .ended:
+            isPanning = false
+            let velocity = gesture.velocity(in: self).y
+            if abs(velocity) >= 60 {
+                scrollVelocity = min(8000, max(-8000, velocity))
+            } else {
+                settleScroll()
+            }
+        case .cancelled, .failed:
+            isPanning = false
+            settleScroll()
         default:
-            panRemainder = 0
+            break
+        }
+    }
+
+    private func beginScroll() {
+        // Freeze whatever is on screen as the new origin, even if the last
+        // fling had not been fully acknowledged by the core yet.
+        scrollBaseOffset = scrollActive ? rawScrollOffset : CGFloat(snapshot.viewOffset)
+        scrollDistance = 0
+        scrollVelocity = 0
+        settleTarget = nil
+        settleFrames = 0
+        requestedScrollOffset = snapshot.viewOffset
+        scrollActive = true
+        isPanning = true
+        setScrollFrameRate(120)
+    }
+
+    /// Continuous view offset, before rubber-banding at the ends.
+    private var rawScrollOffset: CGFloat {
+        scrollBaseOffset + scrollDistance / cellHeight
+    }
+
+    /// The continuous offset the screen should show. Past either end the
+    /// movement is damped, like a scroll view's bounce.
+    private var desiredScrollOffset: CGFloat {
+        let maximum = CGFloat(max(0, snapshot.scrollback))
+        let raw = rawScrollOffset
+        if raw < 0 {
+            return max(-1, raw * 0.3)
+        }
+        if raw > maximum {
+            return min(maximum + 1, maximum + (raw - maximum) * 0.3)
+        }
+        return raw
+    }
+
+    /// The whole-line offset to ask the core for. Flooring (rather than
+    /// rounding) means the snapshot never jumps ahead of the finger; the
+    /// leftover fraction stays in the drawn translation.
+    private var targetScrollOffset: Int {
+        let maximum = max(0, snapshot.scrollback)
+        return min(max(Int(desiredScrollOffset.rounded(.down)), 0), maximum)
+    }
+
+    /// Fractional translation applied on top of the snapshot the core sent.
+    private func visualScrollOffset() -> CGFloat {
+        guard scrollActive else { return 0 }
+        let offset = (desiredScrollOffset - CGFloat(snapshot.viewOffset)) * cellHeight
+        // If the core is busy, do not push the whole screen away. The next
+        // frames fill the gap as the queued targets land.
+        let limit = cellHeight * 6
+        return min(limit, max(-limit, offset))
+    }
+
+    private func settleScroll() {
+        scrollVelocity = 0
+        let maximum = max(0, snapshot.scrollback)
+        let target = min(max(Int(desiredScrollOffset.rounded()), 0), maximum)
+        scrollBaseOffset = CGFloat(target)
+        scrollDistance = 0
+        settleTarget = target
+        settleFrames = 0
+        requestedScrollOffset = snapshot.viewOffset
+        if snapshot.viewOffset == target {
+            finishScroll()
+        }
+    }
+
+    private func finishScroll() {
+        scrollActive = false
+        isPanning = false
+        scrollVelocity = 0
+        settleTarget = nil
+        settleFrames = 0
+        scrollDistance = 0
+        scrollBaseOffset = 0
+        setScrollFrameRate(60)
+        if lastVisualOffset != 0 {
+            lastVisualOffset = 0
+            setNeedsDisplay()
+        }
+    }
+
+    private func advanceMomentum(_ deltaTime: CFTimeInterval) {
+        guard scrollActive, !isPanning else { return }
+        if scrollVelocity != 0 {
+            scrollDistance += scrollVelocity * CGFloat(deltaTime)
+            // Standard scroll-view-like decay: about a third of a second to
+            // lose most of the speed.
+            scrollVelocity *= CGFloat(exp(-deltaTime / 0.32))
+            if abs(scrollVelocity) < 20 {
+                settleScroll()
+            }
+            setNeedsDisplay()
+        } else if settleTarget == nil {
+            settleScroll()
         }
     }
 
     @objc private func jumpToBottom() {
-        bridge?.scroll(sessionID: sessionID, lines: -snapshot.viewOffset)
+        scrollVelocity = 0
+        isPanning = false
+        scrollBaseOffset = 0
+        scrollDistance = 0
+        settleTarget = 0
+        settleFrames = 0
+        requestedScrollOffset = snapshot.viewOffset
+        scrollActive = true
+        bottomButton.isHidden = true
+        if snapshot.viewOffset == 0 {
+            finishScroll()
+        }
     }
 
     // MARK: Selection
@@ -200,7 +340,8 @@ final class TerminalUIView: UIView, UIKeyInput {
     /// The grid cell under a touch, clamped to the screen that is displayed.
     private func cellPosition(at point: CGPoint) -> CellPosition? {
         guard snapshot.cols > 0, !snapshot.cells.isEmpty else { return nil }
-        let row = min(max(0, Int(point.y / cellHeight)), snapshot.cells.count - 1)
+        let y = point.y - visualScrollOffset()
+        let row = min(max(0, Int(y / cellHeight)), snapshot.cells.count - 1)
         let column = min(max(0, Int(point.x / cellWidth)), snapshot.cols - 1)
         return CellPosition(row: row, column: column)
     }
@@ -312,21 +453,56 @@ final class TerminalUIView: UIView, UIKeyInput {
     // MARK: Snapshot
 
     @objc private func tick() {
+        let now = CACurrentMediaTime()
+        let deltaTime = lastTickTime == 0
+            ? 1.0 / 60.0
+            : min(max(now - lastTickTime, 0), 1.0 / 20.0)
+        lastTickTime = now
+
+        advanceMomentum(deltaTime)
+
+        // Send at most one absolute target per frame, no matter how many
+        // touch samples arrived. The serial core queue therefore never builds
+        // a backlog of obsolete scroll positions.
+        if scrollActive {
+            let target = settleTarget ?? targetScrollOffset
+            if target != requestedScrollOffset {
+                bridge?.scrollTo(sessionID: sessionID, offset: target)
+                requestedScrollOffset = target
+            }
+        }
+
+        var snapshotChanged = false
         let count = buffer.withUnsafeMutableBytes { raw in
             MottyScreenSnapshot(sessionID, lastVersion, raw.baseAddress, Int32(raw.count))
         }
         if count > 0 {
             let data = Data(buffer[0..<Int(count)])
-            guard let parsed = ScreenSnapshot(data: data) else { return }
-            snapshot = parsed
-            lastVersion = parsed.version
-            updateOverlayButtons()
-            setNeedsDisplay()
+            if let parsed = ScreenSnapshot(data: data) {
+                snapshot = parsed
+                lastVersion = parsed.version
+                updateOverlayButtons()
+                snapshotChanged = true
+            }
         } else if count < 0 {
             let needed = -Int(count)
             if needed > buffer.count, needed <= 16 * 1024 * 1024 {
                 buffer = [UInt8](repeating: 0, count: needed)
             }
+        }
+
+        if let target = settleTarget {
+            settleFrames += 1
+            if snapshot.viewOffset == target || settleFrames > 30 {
+                finishScroll()
+                snapshotChanged = true
+            }
+        }
+
+        let visual = visualScrollOffset()
+        if snapshotChanged || abs(visual - lastVisualOffset) > 0.01 {
+            lastVisualOffset = visual
+            setNeedsDisplay()
         }
     }
 
@@ -340,17 +516,23 @@ final class TerminalUIView: UIView, UIKeyInput {
 
         let snap = snapshot
         guard !snap.cells.isEmpty else { return }
+        let offset = visualScrollOffset()
         for (rowIndex, row) in snap.cells.enumerated() {
-            let y = CGFloat(rowIndex) * cellHeight
-            guard y < bounds.height else { break }
+            let y = pixelAligned(CGFloat(rowIndex) * cellHeight + offset)
+            guard y + cellHeight >= rect.minY, y <= rect.maxY else { continue }
             drawBackgrounds(row, y: y, context: context)
             drawText(row, y: y)
         }
-        drawSelection(context: context)
-        drawCursor(snap, context: context)
+        drawSelection(offset: offset, context: context)
+        drawCursor(snap, offset: offset, context: context)
     }
 
-    private func drawSelection(context: CGContext) {
+    private func pixelAligned(_ value: CGFloat) -> CGFloat {
+        let scale = max(1, traitCollection.displayScale)
+        return (value * scale).rounded() / scale
+    }
+
+    private func drawSelection(offset: CGFloat, context: CGContext) {
         guard let range = selectionRange else { return }
         context.setFillColor(UIColor.systemBlue.withAlphaComponent(0.3).cgColor)
         for row in range.start.row...range.end.row {
@@ -360,29 +542,48 @@ final class TerminalUIView: UIView, UIKeyInput {
             guard last >= first else { continue }
             context.fill(CGRect(
                 x: CGFloat(first) * cellWidth,
-                y: CGFloat(row) * cellHeight,
+                y: pixelAligned(CGFloat(row) * cellHeight + offset),
                 width: CGFloat(last - first + 1) * cellWidth,
                 height: cellHeight
             ))
         }
     }
 
-    private func drawBackgrounds(_ row: [ScreenSnapshot.Cell], y: CGFloat, context: CGContext) {
-        for (column, cell) in row.enumerated() {
-            let inverse = cell.attr & TerminalAttr.inverse != 0
-            let color: UIColor
-            if inverse {
-                color = TerminalColor.kind(cell.fg) == .defaultValue
-                    ? terminalForeground
-                    : uiColor(cell.fg, fallback: terminalForeground)
-            } else {
-                guard TerminalColor.kind(cell.bg) != .defaultValue else { continue }
-                color = uiColor(cell.bg, fallback: terminalBackground)
-            }
-            context.setFillColor(color.cgColor)
-            let width = CGFloat(cell.width == 2 ? 2 : 1) * cellWidth
-            context.fill(CGRect(x: CGFloat(column) * cellWidth, y: y, width: width, height: cellHeight))
+    private func backgroundColor(for cell: ScreenSnapshot.Cell) -> UIColor? {
+        if cell.attr & TerminalAttr.inverse != 0 {
+            return TerminalColor.kind(cell.fg) == .defaultValue
+                ? terminalForeground
+                : uiColor(cell.fg, fallback: terminalForeground)
         }
+        guard TerminalColor.kind(cell.bg) != .defaultValue else { return nil }
+        return uiColor(cell.bg, fallback: terminalBackground)
+    }
+
+    /// Fills runs of the same background colour in one operation. A syntax-
+    /// highlighted screen used to issue a fill per cell; most rows now take
+    /// one or two.
+    private func drawBackgrounds(_ row: [ScreenSnapshot.Cell], y: CGFloat, context: CGContext) {
+        var runStart = 0
+        var runColor: UIColor?
+        func flush(upTo end: Int) {
+            guard let color = runColor, end > runStart else { return }
+            context.setFillColor(color.cgColor)
+            context.fill(CGRect(
+                x: CGFloat(runStart) * cellWidth,
+                y: y,
+                width: CGFloat(end - runStart) * cellWidth,
+                height: cellHeight
+            ))
+        }
+        for (column, cell) in row.enumerated() {
+            let color = backgroundColor(for: cell)
+            if color != runColor {
+                flush(upTo: column)
+                runStart = column
+                runColor = color
+            }
+        }
+        flush(upTo: row.count)
     }
 
     private func drawText(_ row: [ScreenSnapshot.Cell], y: CGFloat) {
@@ -489,14 +690,14 @@ final class TerminalUIView: UIView, UIKeyInput {
         TextStyle.color(raw, fallback: fallback)
     }
 
-    private func drawCursor(_ snap: ScreenSnapshot, context: CGContext) {
+    private func drawCursor(_ snap: ScreenSnapshot, offset: CGFloat, context: CGContext) {
         guard snap.cursorVisible, snap.cursorY < snap.cells.count else { return }
         let row = snap.cells[snap.cursorY]
         guard snap.cursorX < row.count else { return }
         let cell = row[snap.cursorX]
         if cell.flags & 2 != 0 { return }
         let x = CGFloat(snap.cursorX) * cellWidth
-        let y = CGFloat(snap.cursorY) * cellHeight
+        let y = pixelAligned(CGFloat(snap.cursorY) * cellHeight + offset)
         let width = CGFloat(cell.width == 2 ? 2 : 1) * cellWidth
         context.setFillColor(terminalForeground.withAlphaComponent(0.55).cgColor)
         switch snap.cursorStyle {
@@ -517,6 +718,10 @@ final class TerminalUIView: UIView, UIKeyInput {
     }
 
     @objc private func focus() {
+        if scrollActive && !isPanning {
+            scrollVelocity = 0
+            settleScroll()
+        }
         if selectionRange != nil {
             clearSelection()
             return
@@ -593,5 +798,109 @@ final class TerminalUIView: UIView, UIKeyInput {
     private func sendKey(_ suffix: String) {
         let prefix = snapshot.appCursorKeys ? "\u{1B}O" : "\u{1B}["
         send(Data((prefix + suffix).utf8))
+    }
+}
+
+/// A one-finger pan that starts after about three points instead of the
+/// roughly ten points `UIPanGestureRecognizer` waits for. That touch slop is
+/// useful for buttons, but at the start of a terminal drag it reads as the
+/// text lagging behind the finger. The recognizer exposes the same
+/// translation/velocity calls the scroll handler already used.
+final class TerminalScrollPanGestureRecognizer: UIGestureRecognizer {
+    private let startThreshold: CGFloat = 3
+    private var startPoint: CGPoint = .zero
+    private var currentPoint: CGPoint = .zero
+    private var lastPoint: CGPoint = .zero
+    private var lastTimestamp: CFTimeInterval = 0
+    private var translationOffset: CGPoint = .zero
+    private var currentVelocity: CGPoint = .zero
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        super.touchesBegan(touches, with: event)
+        guard numberOfTouches == 1, let touch = touches.first else {
+            state = .failed
+            return
+        }
+        startPoint = touch.location(in: view)
+        currentPoint = startPoint
+        lastPoint = startPoint
+        lastTimestamp = touch.timestamp
+        translationOffset = .zero
+        currentVelocity = .zero
+    }
+
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
+        super.touchesMoved(touches, with: event)
+        guard numberOfTouches == 1, let touch = touches.first else {
+            state = .failed
+            return
+        }
+        guard state == .possible || state == .began || state == .changed else { return }
+        let point = touch.location(in: view)
+        let elapsed = touch.timestamp - lastTimestamp
+        if elapsed > 0 {
+            currentVelocity = CGPoint(
+                x: (point.x - lastPoint.x) / elapsed,
+                y: (point.y - lastPoint.y) / elapsed
+            )
+        }
+        currentPoint = point
+        lastPoint = point
+        lastTimestamp = touch.timestamp
+
+        if state == .possible {
+            let dx = point.x - startPoint.x
+            let dy = point.y - startPoint.y
+            guard hypot(dx, dy) >= startThreshold else { return }
+            state = .began
+        } else {
+            state = .changed
+        }
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
+        super.touchesEnded(touches, with: event)
+        if state == .began || state == .changed {
+            state = .ended
+        } else {
+            state = .failed
+        }
+    }
+
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
+        super.touchesCancelled(touches, with: event)
+        if state == .began || state == .changed {
+            state = .cancelled
+        } else {
+            state = .failed
+        }
+    }
+
+    override func reset() {
+        super.reset()
+        startPoint = .zero
+        currentPoint = .zero
+        lastPoint = .zero
+        lastTimestamp = 0
+        translationOffset = .zero
+        currentVelocity = .zero
+    }
+
+    func translation(in _: UIView?) -> CGPoint {
+        CGPoint(
+            x: currentPoint.x - startPoint.x - translationOffset.x,
+            y: currentPoint.y - startPoint.y - translationOffset.y
+        )
+    }
+
+    func setTranslation(_ translation: CGPoint, in _: UIView?) {
+        translationOffset = CGPoint(
+            x: currentPoint.x - startPoint.x - translation.x,
+            y: currentPoint.y - startPoint.y - translation.y
+        )
+    }
+
+    func velocity(in _: UIView?) -> CGPoint {
+        currentVelocity
     }
 }

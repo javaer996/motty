@@ -113,8 +113,9 @@ void  MottyFree(char *s);
 | `hosts.importSSHConfig` | 导入 OpenSSH config |
 | `keys.list` / `keys.import` / `keys.delete` | 私钥导入（base64）与删除，存 vault |
 | `sessions.open` / `sessions.close` / `sessions.list` / `sessions.reconnect` | 会话 |
-| `sessions.input` / `sessions.resize` / `sessions.answer` / `sessions.scroll` | 输入、尺寸、主机密钥/密码/passphrase应答、滚动 |
-| `files.list` / `files.stat` / `files.download` / `files.upload` / `files.mkdir` / `files.remove` / `files.rename` / `files.chmod` / `files.symlink` | SFTP 文件与传输 |
+| `sessions.input` / `sessions.resize` / `sessions.answer` / `sessions.scroll` / `sessions.scrollTo` | 输入、尺寸、主机密钥/密码/passphrase应答、按行/绝对位置滚动 |
+| `files.list` / `files.stat` / `files.download` / `files.upload` / `files.create` / `files.mkdir` / `files.remove` / `files.rename` / `files.chmod` / `files.symlink` | SFTP 文件与传输；`files.create` 只新建空文件，拒绝覆盖同名文件 |
+| `files.openText` / `files.saveText` | 远端 UTF-8 文本编辑：8 MiB 上限、BOM 保留、保存时校验 revision |
 | `files.transfers` / `files.cancel` / `files.pause` / `files.resume` / `files.retry` / `files.forget` / `files.release` | 传输控制 |
 | `forwards.list` / `forwards.add` / `forwards.update` / `forwards.remove` / `forwards.start` / `forwards.stop` / `forwards.status` | 端口转发 |
 | `logs.list` / `logs.events` / `logs.stats` / `logs.favorite` / `logs.delete` / `logs.clear` | 会话日志 |
@@ -122,6 +123,7 @@ void  MottyFree(char *s);
 | `desktop.open` / `desktop.close` / `desktop.status` / `desktop.pointer` / `desktop.wheel` / `desktop.key` / `desktop.text` / `desktop.clipboard.get` / `desktop.clipboard.set` / `desktop.answer` / `desktop.resize` / `desktop.active` | VNC/RDP |
 | `ai.settings.get` / `ai.settings.save` / `ai.models` | provider、端点、key、模型、模式 |
 | `ai.send` / `ai.cancel` / `ai.approve` / `ai.reset` | 对话与审批 |
+| `ai.conversations` / `ai.conversation.get` / `ai.conversation.delete` | 按主机保存的对话历史：列表、打开继续、删除 |
 | `sync.status` / `sync.configure` / `sync.clear` / `sync.test` / `sync.now` / `sync.restore` | 云同步 |
 | `backup.export` / `backup.inspect` / `backup.restore` | `.mottybak` 导出与恢复 |
 
@@ -209,7 +211,14 @@ rectCount × 16 bytes:
 - `UIView.draw(_:)` + CoreText 绘制 cell 网格，首版用 CoreGraphics，后续可换 Metal。
 - 等宽字体：SF Mono / Menlo，按 cell 宽度绘制；宽字符占两格。
 - 颜色、粗体、斜体、下划线、反显、光标、选区。
-- 滚动：`term.Scroll` 后拉取快照。
+- 滚动：手指位移按像素跟手，每帧向核心提交最新的绝对行偏移（`sessions.scrollTo`），
+  快照与目标行之间的零头作为绘制平移，因此不会逐行跳动；抬手后带减速惯性，靠近
+  两端时有阻尼回弹。滚动期间 CADisplayLink 提升到屏幕最大刷新率（ProMotion 120 Hz），
+  空闲时降到 60 Hz。背景色按同色连续段合并填充，减少绘制调用。拖动由自定义
+  `TerminalScrollPanGestureRecognizer` 识别：手指移动约 3 pt 即进入 `.began`
+  （系统 `UIPanGestureRecognizer` 的触摸容差约 10 pt），并把这 3 pt 计入位移；
+  不等待长按识别失败，因此第一次滑动既没有 0.35 秒延迟，也没有起步死区。长按仍
+  用于扩展选区。
 - 复制：长按进入选区，拖动扩展，点浮动复制按钮或键盘条 Copy 复制选中单元格；未选中时复制整屏。
 - 链接：`term.LinksAt`。
 
@@ -219,6 +228,31 @@ rectCount × 16 bytes:
 - 快捷键条：Esc、Tab、Ctrl、Alt、方向键、PgUp/PgDn、Home/End、粘贴。
 - 硬件键盘：`UIKeyCommand` 映射到 `term` 的键盘编码（复用桌面键位规则）。
 - 中文 IME：`UITextInput` 组合输入，预编辑文本叠加显示，提交后发送。
+
+### 5.4 会话保持与关闭
+
+- 终端右上角的下箭头只是收起界面，SSH 连接、终端状态、SFTP worker 与端口转发都
+  继续运行；`sshconn.KeepAliveConfig{Interval: 30s, Timeout: 10s}` 持续发送
+  keepalive。App 进入后台仍会被 iOS 挂起，回到前台后若连接已断开可重连。
+- 主机列表分为“配置主机”和“Open sessions”两部分。点按配置主机每次都会新建一个
+  终端，因此同一服务器可以开多个 shell；已连接的终端单独列出，点按某个会话即可
+  回到它。同一主机的多个会话按 Terminal 1 / Terminal 2 编号区分。
+- 关闭连接在 Open sessions 中长按或左滑对应会话；主机行的菜单可以一次关闭该主机的
+  全部连接。关闭后 SSH 连接、SFTP worker 与端口转发一并结束。
+
+### 5.5 SFTP 文本编辑
+
+- 目录中的文件不再默认下载：点按文本文件打开 `RemoteTextEditorView`，由
+  `files.openText` 读取远端内容。只接受 UTF-8、非符号链接、大小不超过 8 MiB 的普通
+  文件；二进制或超限文件显示说明，并提供明确的 Download 操作。
+- 工具栏菜单的 `New file` 在当前目录调用 `files.create` 新建空文件（O_EXCL，拒绝
+  覆盖已有路径），成功后立即用编辑器打开；`New folder` 仍是独立的目录操作。
+- 编辑器使用 `UITextView`，关闭智能引号、智能破折号、自动更正与自动大写，避免破坏
+  配置语法；保存通过 `files.saveText` 原子替换（目录不可写时回退为原地写入），保留
+  文件权限与 BOM。
+- 保存携带打开时的 SHA-256 revision；远端内容已变化时返回 `conflict`，不会静默覆盖，
+  用户可重新加载后再保存。未保存修改在关闭或下拉时要求确认。
+- 下载仍可从文件菜单、编辑器菜单或二进制回退页触发，并进入传输中心。
 
 ## 6. AI 子系统
 
@@ -245,7 +279,16 @@ rectCount × 16 bytes:
   `ai.approval`、`ai.usage`、`ai.error`、`ai.modeRequest`。
 - 审批策略：`risk.Policy{Enabled:true, AutoUpTo:Low}` + `gate.ModeAsk`；读操作自动，
   Medium/High 弹窗，Critical 需输入 `CONFIRM`。
-- 对话历史先驻留内存（按 session），M6 迁移到 `ai.store` 的 SQLite schema。
+- 对话按**主机**保存到 `ai.db`（复用 `internal/ai/store` 的 SQLite schema）。同一主机
+  重新连接、关闭终端标签或重启 App 后，助手继续使用原来的上下文；面板打开时自动
+  载入当前对话。`ai.reset` 只开始新对话，旧对话仍保留在历史列表中，可重新打开继续。
+- 消息归属通过 `ToolJSON` 中的 `ios_host` 标记区分，不修改桌面共享 schema。
+- 助手回复由 `MarkdownMessageView` 渲染：标题、段落、粗斜体、行内代码、代码块（可复制）、
+  有序/无序列表、引用、分隔线、管道表格与链接，流式输出时同样按块解析。
+- 对话按主机隔离：不同主机的历史互不相通；同一主机的多个终端共享该主机的当前对话。
+- 工具参数与工具结果默认折叠到可读行数，提供“显示更多/收起”查看完整内容，不再使用
+  无法展开的省略号；工具结果不再嵌套在固定高度的小滚动区里。
+- 打开助手时自动定位到底部（包括刚载入历史后的首次布局）；流式输出期间持续跟随。
 
 ### 6.3 iOS 裁剪
 
@@ -265,6 +308,7 @@ rectCount × 16 bytes:
 | `known_hosts` | OpenSSH known_hosts（`internal/knownhosts`） |
 | `session-logs.db` / `history.db` | 会话日志、命令历史（SQLite） |
 | `ai.json` | provider、模型、端点、模式；API key 不在此文件 |
+| `ai.db` | 按主机保存的助手对话历史（`internal/ai/store` schema） |
 | `sync.json` | 同步目标、ETag、lastSync；同步凭据不在此文件 |
 | `exports/` | 最近 5 个 `.mottybak` 导出 |
 | `inbox/` | 从 Files 导入、待恢复的备份文件 |
@@ -307,7 +351,7 @@ rectCount × 16 bytes:
 | --- | --- | --- |
 | M0 | Go c-archive + Swift 桥接 + 终端渲染骨架 | 已编译通过；待真机验证 |
 | M1 | 主机 CRUD/分组/导入、认证、known_hosts、软键盘快捷键、滚动/复制、重连 | 主要功能完成；多标签/known_hosts 管理界面待做 |
-| M2 | AI 助手：provider/模型、对话、流式、工具调用、审批 | 核心闭环完成（单元与流程测试通过）；MCP/附件/历史持久化待做 |
+| M2 | AI 助手：provider/模型、对话、流式、工具调用、审批 | 核心闭环完成；对话按主机持久化到 ai.db，历史列表/继续/删除已完成；MCP/附件待做 |
 | M3 | SFTP 浏览/传输、文件 App、分享 | 完成；Go 单测通过，真机待完整验证 |
 | M4 | 端口转发、会话日志、命令历史、补全 | 完成；Go 单测通过，真机待验证 |
 | M5 | VNC/RDP | 完成；Go 单测通过，真实服务器待验证 |

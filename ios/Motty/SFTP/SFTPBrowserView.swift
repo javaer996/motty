@@ -17,11 +17,15 @@ struct SFTPBrowserView: View {
     @State private var sortByName = true
     @State private var showingTransfers = false
     @State private var uploading = false
+    @State private var creatingFile = false
+    @State private var newFileName = ""
     @State private var creatingFolder = false
     @State private var newFolderName = ""
     @State private var renaming: RemoteEntry?
     @State private var renameText = ""
     @State private var deleting: RemoteEntry?
+    @State private var editing: RemoteEntry?
+    @State private var pendingDownload: RemoteEntry?
 
     private var visibleEntries: [RemoteEntry] {
         var list = entries.filter { $0.name != "." && $0.name != ".." }
@@ -81,6 +85,12 @@ struct SFTPBrowserView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
                         Button {
+                            newFileName = ""
+                            creatingFile = true
+                        } label: {
+                            Label("New file", systemImage: "doc.badge.plus")
+                        }
+                        Button {
                             newFolderName = ""
                             creatingFolder = true
                         } label: {
@@ -134,6 +144,13 @@ struct SFTPBrowserView: View {
                 allowedContentTypes: [.item],
                 allowsMultipleSelection: false
             ) { handleUpload($0) }
+            .alert("New file", isPresented: $creatingFile) {
+                TextField("File name", text: $newFileName)
+                Button("Create") { createFile() }
+                Button("Cancel", role: .cancel) { newFileName = "" }
+            } message: {
+                Text("Create inside \(displayPath)")
+            }
             .alert("New folder", isPresented: $creatingFolder) {
                 TextField("Folder name", text: $newFolderName)
                 Button("Create") { createFolder() }
@@ -166,6 +183,29 @@ struct SFTPBrowserView: View {
             .sheet(isPresented: $showingTransfers) {
                 TransferCenterView(sessionID: sessionID)
                     .environmentObject(bridge)
+            }
+            .sheet(item: $editing) { entry in
+                RemoteTextEditorView(
+                    sessionID: sessionID,
+                    path: join(entry.name),
+                    name: entry.name,
+                    onSaved: { load() },
+                    onDownload: {
+                        // The browser owns the transfer center, so close this
+                        // editor first and let its dismissal finish before the
+                        // download sheet appears.
+                        pendingDownload = entry
+                        editing = nil
+                    }
+                )
+                .environmentObject(bridge)
+            }
+            .onChange(of: editing) { _, value in
+                guard value == nil, let entry = pendingDownload else { return }
+                pendingDownload = nil
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                    download(entry)
+                }
             }
         }
     }
@@ -219,6 +259,13 @@ struct SFTPBrowserView: View {
                     Label("Open", systemImage: "folder")
                 }
             }
+            if !entry.isDir {
+                Button {
+                    open(entry)
+                } label: {
+                    Label("Open", systemImage: "doc.text")
+                }
+            }
             Button {
                 download(entry)
             } label: {
@@ -267,7 +314,10 @@ struct SFTPBrowserView: View {
             path = join(entry.name)
             load()
         } else {
-            download(entry)
+            // Files open in the editor first. Binary or oversized files get a
+            // clear explanation there with an explicit Download action, which
+            // keeps a single tap from unexpectedly transferring data.
+            editing = entry
         }
     }
 
@@ -375,6 +425,40 @@ struct SFTPBrowserView: View {
             case .failure(let error):
                 errorText = error.localizedDescription
             }
+        }
+    }
+
+    private func createFile() {
+        let name = newFileName.trimmingCharacters(in: .whitespacesAndNewlines)
+        newFileName = ""
+        guard validName(name) else {
+            errorText = AppLanguage.localized("Enter a name without slashes.")
+            return
+        }
+        bridge.createFile(sessionID: sessionID, path: join(name)) { error in
+            if let error {
+                if let rpc = error as? RPCError, rpc.code == "conflict" {
+                    errorText = AppLanguage.localized("A file with that name already exists.")
+                } else {
+                    errorText = error.localizedDescription
+                }
+                return
+            }
+            load()
+            // Open the fresh file so the next keystroke can start typing.
+            editing = RemoteEntry(
+                name: name,
+                size: 0,
+                mode: 0o644,
+                modTime: Int64(Date().timeIntervalSince1970),
+                isDir: false,
+                isLink: false,
+                linkTarget: nil,
+                linkDir: nil,
+                linkBroken: nil,
+                owner: nil,
+                group: nil
+            )
         }
     }
 

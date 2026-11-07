@@ -64,6 +64,7 @@ const (
 	OperationOpenDocument
 	OperationSaveDocument
 	OperationReadDocument
+	OperationCreateFile
 )
 
 // ExistingPolicy controls what a transfer does when its final destination or
@@ -392,6 +393,12 @@ func (worker *Worker) QueueUpload(localPath, remotePath string, recursive bool, 
 
 func (worker *Worker) CreateDirectory(remotePath string) bool {
 	return worker.enqueue(request{operation: OperationCreateDirectory, remote: remotePath})
+}
+
+// CreateFile creates an empty remote file and refuses to replace an existing
+// path, so a mistyped name cannot truncate someone else's file.
+func (worker *Worker) CreateFile(remotePath string) bool {
+	return worker.enqueue(request{operation: OperationCreateFile, remote: remotePath})
 }
 
 // CreateDirectories creates a matching navigation path, including missing
@@ -1039,6 +1046,8 @@ func (worker *Worker) execute(next request) Result {
 		} else {
 			result.Err = createDirectory(client, next.remote)
 		}
+	case OperationCreateFile:
+		result.Err = WriteFile(client, next.remote, nil, false)
 	case OperationRename:
 		result.Err = rename(client, next.remote, next.destination)
 	case OperationRemoveFile:

@@ -62,12 +62,15 @@ struct SessionView: View {
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
+                    // Leaving the terminal keeps the SSH connection and its
+                    // keepalive running. Long-pressing its row under Open
+                    // sessions is how a connection is closed.
                     Button {
-                        bridge.closeSession(sessionID)
                         dismiss()
                     } label: {
-                        Image(systemName: "xmark")
+                        Image(systemName: "chevron.down")
                     }
+                    .accessibilityLabel(Text("Keep in background"))
                 }
             }
         }

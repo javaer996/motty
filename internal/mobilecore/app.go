@@ -374,8 +374,58 @@ func (a *App) call(method string, params json.RawMessage) (any, error) {
 		if err := decodeParams(params, &request); err != nil {
 			return nil, err
 		}
-		a.ai.reset(request.SessionID)
+		session, ok := a.sessions.get(request.SessionID)
+		if !ok {
+			return nil, errorf(CodeNotFound, "no session with id %d", request.SessionID)
+		}
+		a.ai.reset(session.host.ID)
 		return map[string]bool{"reset": true}, nil
+	case "ai.conversations":
+		var request struct {
+			SessionID uint32 `json:"sessionId"`
+		}
+		if err := decodeParams(params, &request); err != nil {
+			return nil, err
+		}
+		session, ok := a.sessions.get(request.SessionID)
+		if !ok {
+			return nil, errorf(CodeNotFound, "no session with id %d", request.SessionID)
+		}
+		conversations, err := a.ai.conversations(session.host.ID)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"conversations": conversations}, nil
+	case "ai.conversation.get":
+		var request struct {
+			SessionID      uint32 `json:"sessionId"`
+			ConversationID int64  `json:"conversationId"`
+		}
+		if err := decodeParams(params, &request); err != nil {
+			return nil, err
+		}
+		session, ok := a.sessions.get(request.SessionID)
+		if !ok {
+			return nil, errorf(CodeNotFound, "no session with id %d", request.SessionID)
+		}
+		return a.ai.conversation(session.host.ID, request.ConversationID)
+	case "ai.conversation.delete":
+		var request struct {
+			SessionID      uint32 `json:"sessionId"`
+			ConversationID int64  `json:"conversationId"`
+		}
+		if err := decodeParams(params, &request); err != nil {
+			return nil, err
+		}
+		session, ok := a.sessions.get(request.SessionID)
+		if !ok {
+			return nil, errorf(CodeNotFound, "no session with id %d", request.SessionID)
+		}
+		active, err := a.ai.deleteConversation(session.host.ID, request.ConversationID)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]bool{"deleted": true, "active": active}, nil
 	case "sessions.open":
 		var request struct {
 			HostID string `json:"hostId"`
@@ -467,6 +517,19 @@ func (a *App) call(method string, params json.RawMessage) (any, error) {
 			return nil, err
 		}
 		return map[string]any{"offset": session.scroll(request.Lines)}, nil
+	case "sessions.scrollTo":
+		var request struct {
+			ID     uint32 `json:"id"`
+			Offset int    `json:"offset"`
+		}
+		if err := decodeParams(params, &request); err != nil {
+			return nil, err
+		}
+		session, err := a.session(request.ID)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"offset": session.scrollTo(request.Offset)}, nil
 	default:
 		if handled, result, err := a.callSync(method, params); handled {
 			return result, err

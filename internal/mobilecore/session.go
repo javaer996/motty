@@ -937,6 +937,16 @@ func (s *session) scroll(lines int) int {
 	return s.terminal.ViewOffset()
 }
 
+func (s *session) scrollTo(offset int) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.terminal == nil {
+		return 0
+	}
+	s.terminal.ScrollTo(offset)
+	return s.terminal.ViewOffset()
+}
+
 // snapshot writes a screen snapshot into dst. A zero sinceVersion always
 // writes; otherwise the terminal version must differ. It returns the byte
 // count, 0 when nothing changed, or -needed when dst is too small.

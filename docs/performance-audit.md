@@ -574,7 +574,7 @@ SSH 读侧最多缓存 1 MiB（[`shell.go:19`](../internal/sshconn/shell.go#L19)
 | 终端图片 | 64 MB（[`image.go:23`](../internal/term/image.go#L23)） | 单图最大 4 M 像素 |
 | 背景图 | 长边 2560、约 16 MB | 已离线程解码 |
 | SFTP 列表缓存 | 16 个目录、总计约 **32 MB**（[`sftp.go:127`](../internal/workbench/sftp.go#L127)） | 条目含字符串，按估算字节淘汰 |
-| SFTP 文本编辑器 | 1 MiB | `MaxEditFileBytes` |
+| SFTP 文本编辑器 | 8 MiB | `MaxEditFileBytes` |
 | 录制 | 8 MiB / 65 536 事件 | 有界 |
 | 终端输出缓冲 | 1 MiB / 会话（峰值 cap 4 MiB） | 有界，超限会释放 |
 

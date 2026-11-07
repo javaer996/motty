@@ -8,6 +8,7 @@ struct AIChatView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var input = ""
     @State private var showingSettings = false
+    @State private var showingHistory = false
     @State private var confirmText = ""
 
     private var conversation: AIConversation {
@@ -16,6 +17,16 @@ struct AIChatView: View {
 
     private var configured: Bool {
         !bridge.aiSettings.model.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    /// True while a run is in flight but it has not started streaming an
+    /// answer yet. Tool cards carry their own progress indicator.
+    private var waitingForReply: Bool {
+        guard conversation.isRunning else { return false }
+        guard let last = conversation.messages.last else { return true }
+        if last.role == .tool { return false }
+        if last.role == .assistant { return last.text.isEmpty }
+        return true
     }
 
     var body: some View {
@@ -40,6 +51,17 @@ struct AIChatView: View {
                                 .id(message.id)
                         }
 
+                        if waitingForReply {
+                            HStack(spacing: 8) {
+                                ProgressView()
+                                    .controlSize(.small)
+                                Text("Replying…")
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .id("replying")
+                        }
+
                         if let approval = conversation.pendingApproval {
                             approvalCard(approval)
                                 .id("approval")
@@ -51,14 +73,30 @@ struct AIChatView: View {
                     }
                     .padding()
                 }
+                .defaultScrollAnchor(.bottom)
+                .onAppear {
+                    if conversation.historyLoaded {
+                        scrollToBottom(proxy, animated: false, afterLayout: true)
+                    }
+                }
+                .onChange(of: conversation.historyLoaded) { _, loaded in
+                    if loaded {
+                        scrollToBottom(proxy, animated: false, afterLayout: true)
+                    }
+                }
                 .onChange(of: conversation.messages.count) { _, _ in
                     scrollToBottom(proxy)
                 }
                 .onChange(of: conversation.messages.last?.text) { _, _ in
-                    scrollToBottom(proxy)
+                    // Streaming chunks arrive many times a second; animating
+                    // each one makes the list lag behind the text.
+                    scrollToBottom(proxy, animated: false)
                 }
                 .onChange(of: conversation.pendingApproval?.id) { _, _ in
                     scrollToBottom(proxy)
+                }
+                .onChange(of: conversation.isRunning) { _, running in
+                    if running { scrollToBottom(proxy) }
                 }
             }
             .safeAreaInset(edge: .bottom) {
@@ -74,9 +112,17 @@ struct AIChatView: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
-                        Button("New conversation", role: .destructive) {
-                            bridge.resetAIConversation(sessionID: sessionID)
+                        Button {
+                            showingHistory = true
+                        } label: {
+                            Label("Conversation history", systemImage: "clock.arrow.circlepath")
                         }
+                        Button {
+                            bridge.resetAIConversation(sessionID: sessionID)
+                        } label: {
+                            Label("New conversation", systemImage: "square.and.pencil")
+                        }
+                        .disabled(conversation.isRunning)
                     } label: {
                         Image(systemName: "ellipsis.circle")
                     }
@@ -89,12 +135,37 @@ struct AIChatView: View {
                 AISettingsView()
                     .environmentObject(bridge)
             }
+            .sheet(isPresented: $showingHistory) {
+                AIHistoryView(sessionID: sessionID)
+                    .environmentObject(bridge)
+            }
+            .task {
+                bridge.loadAIConversationIfNeeded(sessionID: sessionID)
+            }
         }
     }
 
-    private func scrollToBottom(_ proxy: ScrollViewProxy) {
-        withAnimation(.easeOut(duration: 0.15)) {
+    private func scrollToBottom(
+        _ proxy: ScrollViewProxy,
+        animated: Bool = true,
+        afterLayout: Bool = false
+    ) {
+        if animated {
+            withAnimation(.easeOut(duration: 0.15)) {
+                proxy.scrollTo("bottom", anchor: .bottom)
+            }
+            return
+        }
+        DispatchQueue.main.async {
             proxy.scrollTo("bottom", anchor: .bottom)
+            // After loading saved history the rows have not been laid out
+            // yet. Repeat once after that layout pass; streaming chunks use
+            // the immediate path so they cannot queue late scrolls.
+            if afterLayout {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    proxy.scrollTo("bottom", anchor: .bottom)
+                }
+            }
         }
     }
 
@@ -114,12 +185,17 @@ struct AIChatView: View {
                     .textSelection(.enabled)
             }
         case .assistant:
-            Text(message.text.isEmpty && message.streaming ? "…" : message.text)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 14))
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            Group {
+                if message.text.isEmpty && message.streaming {
+                    Text("…")
+                } else {
+                    MarkdownMessageView(text: message.text)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 14))
+            .frame(maxWidth: .infinity, alignment: .leading)
         case .reasoning:
             Text(message.text)
                 .font(.caption)
@@ -161,21 +237,19 @@ struct AIChatView: View {
                 }
             }
             if let arguments = message.toolArguments, arguments != "{}", !arguments.isEmpty {
-                Text(arguments)
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.secondary)
-                    .lineLimit(4)
-                    .textSelection(.enabled)
+                ExpandableCodeText(
+                    text: arguments,
+                    collapsedLineLimit: 6,
+                    secondary: true
+                )
             }
             if let result = message.toolResult, !result.isEmpty {
                 Divider()
-                ScrollView(.vertical) {
-                    Text(result)
-                        .font(.caption.monospaced())
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .textSelection(.enabled)
-                }
-                .frame(maxHeight: 180)
+                ExpandableCodeText(
+                    text: result,
+                    collapsedLineLimit: 10,
+                    secondary: false
+                )
             }
         }
         .padding(12)
@@ -277,7 +351,7 @@ struct AIChatView: View {
     private var composer: some View {
         VStack(spacing: 0) {
             Divider()
-            HStack(alignment: .bottom, spacing: 8) {
+            HStack(alignment: .center, spacing: 8) {
                 TextField(configured ? "Message the assistant" : "Configure the assistant first", text: $input, axis: .vertical)
                     .lineLimit(1...5)
                     .padding(.horizontal, 10)
@@ -311,5 +385,48 @@ struct AIChatView: View {
         let text = input
         input = ""
         bridge.sendAIMessage(sessionID: sessionID, text: text)
+    }
+}
+
+/// Tool arguments and results can be much longer than a phone screen. Show a
+/// readable excerpt first, with an explicit control to reveal every line
+/// instead of an ellipsis the user cannot get past.
+private struct ExpandableCodeText: View {
+    let text: String
+    let collapsedLineLimit: Int
+    let secondary: Bool
+
+    @State private var expanded = false
+
+    private var needsExpansion: Bool {
+        // Character count catches long single lines that wrap past the limit
+        // without any newline; line count catches short but many-lined text.
+        if text.count > collapsedLineLimit * 45 { return true }
+        var lines = 1
+        for byte in text.utf8 where byte == 10 {
+            lines += 1
+            if lines > collapsedLineLimit { return true }
+        }
+        return false
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(verbatim: text)
+                .font(.caption.monospaced())
+                .foregroundStyle(secondary ? Color.secondary : Color.primary)
+                .lineLimit(expanded ? nil : collapsedLineLimit)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .textSelection(.enabled)
+            if needsExpansion {
+                Button(expanded ? "Show less" : "Show more") {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        expanded.toggle()
+                    }
+                }
+                .font(.caption.weight(.semibold))
+                .buttonStyle(.borderless)
+            }
+        }
     }
 }

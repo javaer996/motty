@@ -3,6 +3,7 @@ package mobilecore
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -11,6 +12,7 @@ import (
 	"motty/internal/ai/gate"
 	"motty/internal/ai/llm"
 	"motty/internal/ai/risk"
+	aistore "motty/internal/ai/store"
 )
 
 const (
@@ -45,6 +47,7 @@ type aiApprovalReply struct {
 type aiRun struct {
 	id        uint64
 	sessionID uint32
+	hostID    string
 	events    *eventQueue
 	cancel    context.CancelFunc
 	ctx       context.Context
@@ -56,12 +59,21 @@ type aiRun struct {
 }
 
 // aiState owns conversations and the configuration of the assistant.
+// Conversations belong to hosts, not sessions: the same host reopened in a
+// new terminal continues where the assistant left off.
 type aiState struct {
 	mu       sync.Mutex
 	settings *aiSettingsStore
-	history  map[uint32][]llm.Message
+	history  map[string][]llm.Message
+	convs    map[string]int64
 	runs     map[uint64]*aiRun
 	nextRun  uint64
+
+	// storeMu serializes creating a conversation and appending its first
+	// messages, so two runs cannot make two conversations for one host.
+	storeMu sync.Mutex
+	store   *aistore.Store
+	runsWG  sync.WaitGroup
 
 	sessions *sessionManager
 	backend  *aiBackend
@@ -70,10 +82,13 @@ type aiState struct {
 }
 
 func newAIState(data *dataStore, sessions *sessionManager, events *eventQueue) *aiState {
+	store, _ := aistore.Open(filepath.Join(data.dir, "ai.db"))
 	return &aiState{
 		settings: openAISettingsStore(data),
-		history:  map[uint32][]llm.Message{},
+		history:  map[string][]llm.Message{},
+		convs:    map[string]int64{},
 		runs:     map[uint64]*aiRun{},
+		store:    store,
 		sessions: sessions,
 		backend:  &aiBackend{manager: sessions},
 		events:   events,
@@ -110,18 +125,20 @@ func (s *aiState) send(sessionID uint32, userText string) (uint64, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	run := &aiRun{
 		sessionID: sessionID,
+		hostID:    session.host.ID,
 		events:    s.events,
 		ctx:       ctx,
 		cancel:    cancel,
 		approvals: map[string]*aiApproval{},
 		granted:   map[string]bool{},
 	}
+	s.runsWG.Add(1)
 	s.mu.Lock()
 	s.nextRun++
 	run.id = s.nextRun
 	s.runs[run.id] = run
-	history := append([]llm.Message(nil), s.history[sessionID]...)
 	s.mu.Unlock()
+	history := s.historyFor(run.hostID)
 
 	s.events.push("ai.state", map[string]any{
 		"runId": run.id, "sessionId": sessionID, "state": "running",
@@ -136,6 +153,7 @@ func (s *aiState) execute(run *aiRun, settings aiSettings, provider llm.Provider
 		s.mu.Lock()
 		delete(s.runs, run.id)
 		s.mu.Unlock()
+		s.runsWG.Done()
 	}()
 
 	mode := agent.ModeAgent
@@ -155,9 +173,7 @@ func (s *aiState) execute(run *aiRun, settings aiSettings, provider llm.Provider
 		s.emit(run, event)
 	})
 
-	s.mu.Lock()
-	s.history[run.sessionID] = append(history, messages...)
-	s.mu.Unlock()
+	s.recordRun(run.hostID, history, messages, target)
 
 	payload := map[string]any{"runId": run.id, "sessionId": run.sessionID}
 	switch {
@@ -277,14 +293,8 @@ func (s *aiState) approve(runID uint64, approvalID string, approved bool, confir
 	return nil
 }
 
-// reset forgets the conversation of one session.
-func (s *aiState) reset(sessionID uint32) {
-	s.mu.Lock()
-	delete(s.history, sessionID)
-	s.mu.Unlock()
-}
-
-// close cancels every run; the app is going away.
+// close cancels every run and releases the conversation database; the app is
+// going away.
 func (s *aiState) close() {
 	s.mu.Lock()
 	runs := make([]*aiRun, 0, len(s.runs))
@@ -294,6 +304,10 @@ func (s *aiState) close() {
 	s.mu.Unlock()
 	for _, run := range runs {
 		run.cancel()
+	}
+	s.runsWG.Wait()
+	if s.store != nil {
+		_ = s.store.Close()
 	}
 }
 

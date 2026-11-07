@@ -968,7 +968,7 @@ var EnglishMessages = Messages{
 	SFTPEditSave:                "Save Remote",
 	SFTPEditReload:              "Reload",
 	SFTPEditLabel:               "Remote file contents",
-	SFTPEditSafety:              "UTF-8 text · 1 MiB maximum · conflict-checked atomic save",
+	SFTPEditSafety:              "UTF-8 text · 8 MiB maximum · conflict-checked atomic save",
 	SFTPEditReady:               "Remote file opened",
 	SFTPEditDirty:               "Unsaved changes",
 	SFTPEditSaving:              "Saving remote file atomically…",

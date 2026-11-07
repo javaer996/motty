@@ -16,7 +16,13 @@ struct RootView: View {
         NavigationStack {
             HostListView(
                 hosts: bridge.hosts,
-                onOpen: open,
+                sessions: bridge.sessions,
+                onOpenHost: open,
+                onOpenSession: { activeSession = $0 },
+                onCloseSession: { bridge.closeSession($0.id) },
+                onCloseSessions: { sessions in
+                    for session in sessions { bridge.closeSession(session.id) }
+                },
                 onEdit: { editingHost = $0 },
                 onDelete: { bridge.deleteHost($0) },
                 onImport: { importing = true }
@@ -101,6 +107,9 @@ struct RootView: View {
             desktopHost = host
             return
         }
+        // Every tap on a configured host opens another terminal. Existing
+        // connections live in the Open sessions section so they can be
+        // resumed without taking away the ability to open a second shell.
         Task {
             do {
                 let info = try await bridge.openSession(host: host, cols: 80, rows: 24)
@@ -140,12 +149,53 @@ struct RootView: View {
 
 private struct HostListView: View {
     let hosts: [Host]
-    let onOpen: (Host) -> Void
+    let sessions: [SessionInfo]
+    let onOpenHost: (Host) -> Void
+    let onOpenSession: (SessionInfo) -> Void
+    let onCloseSession: (SessionInfo) -> Void
+    let onCloseSessions: ([SessionInfo]) -> Void
     let onEdit: (Host) -> Void
     let onDelete: (Host) -> Void
     let onImport: () -> Void
 
     @State private var search = ""
+
+    private func liveSessions(for host: Host) -> [SessionInfo] {
+        sessions.filter { $0.hostId == host.id }.sorted { $0.id < $1.id }
+    }
+
+    private var orderedSessions: [SessionInfo] {
+        sessions.sorted { $0.id > $1.id }
+    }
+
+    private var visibleSessions: [SessionInfo] {
+        guard !search.isEmpty else { return orderedSessions }
+        let needle = search.lowercased()
+        return orderedSessions.filter { session in
+            let hostLabel = hosts.first { $0.id == session.hostId }?.label ?? ""
+            return session.title.lowercased().contains(needle) ||
+                session.address.lowercased().contains(needle) ||
+                session.user.lowercased().contains(needle) ||
+                hostLabel.lowercased().contains(needle)
+        }
+    }
+
+    /// Per-host terminal numbers. Two shells on the same server otherwise look
+    /// identical when the shell's title is the host label.
+    private var sessionOrdinals: [UInt32: Int] {
+        var counts: [String: Int] = [:]
+        var ordinals: [UInt32: Int] = [:]
+        for session in sessions.sorted(by: { $0.id < $1.id }) {
+            let ordinal = (counts[session.hostId] ?? 0) + 1
+            counts[session.hostId] = ordinal
+            ordinals[session.id] = ordinal
+        }
+        return ordinals
+    }
+
+    private func sessionCount(forHostID id: String) -> Int {
+        sessions.filter { $0.hostId == id }.count
+    }
 
     private var filtered: [Host] {
         guard !search.isEmpty else { return hosts }
@@ -174,16 +224,71 @@ private struct HostListView: View {
 
     var body: some View {
         List {
+            if !visibleSessions.isEmpty {
+                Section("Open sessions") {
+                    ForEach(visibleSessions) { session in
+                        Button {
+                            onOpenSession(session)
+                        } label: {
+                            SessionRow(
+                                session: session,
+                                ordinal: sessionOrdinals[session.id] ?? 1,
+                                showsOrdinal: sessionCount(forHostID: session.hostId) > 1
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .contextMenu {
+                            Button(role: .destructive) {
+                                onCloseSession(session)
+                            } label: {
+                                Label("Close connection", systemImage: "xmark.circle")
+                            }
+                        }
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            Button(role: .destructive) {
+                                onCloseSession(session)
+                            } label: {
+                                Label("Close connection", systemImage: "xmark.circle")
+                            }
+                        }
+                    }
+                }
+            }
+
             ForEach(sections, id: \.0) { section in
                 Section(section.0.isEmpty ? "Hosts" : section.0) {
                     ForEach(section.1) { host in
-                        Button { onOpen(host) } label: {
-                            HostRow(host: host)
+                        let live = liveSessions(for: host)
+                        Button { onOpenHost(host) } label: {
+                            HostRow(host: host, sessions: live)
                         }
                         .buttonStyle(.plain)
+                        .contextMenu {
+                            if !live.isEmpty {
+                                Button(role: .destructive) {
+                                    onCloseSessions(live)
+                                } label: {
+                                    Label("Close all connections", systemImage: "xmark.circle")
+                                }
+                            }
+                            Button { onEdit(host) } label: {
+                                Label("Edit", systemImage: "pencil")
+                            }
+                            Button(role: .destructive) { onDelete(host) } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
+                        }
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             Button(role: .destructive) { onDelete(host) } label: {
                                 Label("Delete", systemImage: "trash")
+                            }
+                            if !live.isEmpty {
+                                Button {
+                                    onCloseSessions(live)
+                                } label: {
+                                    Label("Close all connections", systemImage: "xmark.circle")
+                                }
+                                .tint(.orange)
                             }
                             Button { onEdit(host) } label: {
                                 Label("Edit", systemImage: "pencil")
@@ -197,7 +302,7 @@ private struct HostListView: View {
         .listStyle(.insetGrouped)
         .searchable(text: $search, prompt: "Search hosts")
         .overlay {
-            if hosts.isEmpty {
+            if hosts.isEmpty && sessions.isEmpty {
                 ContentUnavailableView {
                     Label("No hosts yet", systemImage: "server.rack")
                 } description: {
@@ -205,15 +310,37 @@ private struct HostListView: View {
                 } actions: {
                     Button("Import SSH config", action: onImport)
                 }
-            } else if filtered.isEmpty {
+            } else if filtered.isEmpty && visibleSessions.isEmpty {
                 ContentUnavailableView.search(text: search)
             }
         }
     }
+
 }
 
 private struct HostRow: View {
     let host: Host
+    let sessions: [SessionInfo]
+
+    private var connectedCount: Int {
+        sessions.filter { $0.isConnected }.count
+    }
+
+    private var waiting: Bool {
+        sessions.contains { $0.isWaiting }
+    }
+
+    private var sessionStatus: LocalizedStringKey {
+        if connectedCount > 0 { return "Connected" }
+        if waiting { return "Connecting…" }
+        return "Disconnected"
+    }
+
+    private var sessionColor: Color {
+        if connectedCount > 0 { return .green }
+        if waiting { return .orange }
+        return .secondary
+    }
 
     private var accent: Color {
         guard let value = host.color?.trimmingCharacters(in: CharacterSet(charactersIn: "#")),
@@ -251,6 +378,80 @@ private struct HostRow: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
+            if !sessions.isEmpty {
+                HStack(spacing: 5) {
+                    Circle()
+                        .fill(sessionColor)
+                        .frame(width: 7, height: 7)
+                    Text(sessionStatus)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    if connectedCount > 1 {
+                        Text(verbatim: "×\(connectedCount)")
+                            .font(.caption2.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            Image(systemName: "plus.circle")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+                .accessibilityLabel(Text("New terminal"))
+        }
+        .contentShape(Rectangle())
+        .padding(.vertical, 2)
+    }
+}
+
+private struct SessionRow: View {
+    let session: SessionInfo
+    let ordinal: Int
+    let showsOrdinal: Bool
+
+    private var statusText: LocalizedStringKey {
+        if session.isConnected { return "Connected" }
+        if session.isWaiting { return "Connecting…" }
+        return "Disconnected"
+    }
+
+    private var statusColor: Color {
+        if session.isConnected { return .green }
+        if session.isWaiting { return .orange }
+        return .secondary
+    }
+
+    private var target: String {
+        session.user.isEmpty ? session.address : "\(session.user)@\(session.address)"
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Circle()
+                .fill(statusColor)
+                .frame(width: 8, height: 8)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text(session.title.isEmpty ? session.address : session.title)
+                        .font(.headline)
+                        .lineLimit(1)
+                    if showsOrdinal {
+                        Text(verbatim: "\(AppLanguage.localized("Terminal")) \(ordinal)")
+                            .font(.caption2.weight(.semibold))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(.tint.opacity(0.15), in: Capsule())
+                            .foregroundStyle(.tint)
+                    }
+                }
+                Text(verbatim: target)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer()
+            Text(statusText)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
             Image(systemName: "chevron.right")
                 .font(.caption)
                 .foregroundStyle(.tertiary)

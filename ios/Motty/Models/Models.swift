@@ -226,6 +226,9 @@ struct AIChatMessage: Identifiable, Equatable {
     var id: String
     var role: Role
     var text: String
+    /// The provider's tool-call id. `id` stays unique for SwiftUI; several
+    /// runs may reuse the same call id.
+    var toolCallID: String? = nil
     var toolName: String?
     var toolArguments: String?
     var toolResult: String?
@@ -252,11 +255,49 @@ struct AIConversation {
     var messages: [AIChatMessage] = []
     var runID: UInt64?
     var pendingApproval: AIApprovalRequest?
+    /// Whether the saved conversation for this host has been read yet. The
+    /// chat panel loads it once, so reconnecting or reopening the app shows
+    /// the earlier messages.
+    var historyLoaded = false
 
     var isRunning: Bool {
         if runID != nil { return true }
         return messages.last?.streaming == true
     }
+}
+
+/// One saved assistant thread in the history list.
+struct AIConversationSummary: Decodable, Identifiable, Equatable {
+    var id: Int64
+    var title: String
+    var hostLabel: String?
+    /// Unix milliseconds, from the Go store's conversation timestamp.
+    var updated: Int64
+    var active: Bool
+}
+
+struct AIConversationListResult: Decodable {
+    var conversations: [AIConversationSummary]
+}
+
+struct AIHistoryToolCall: Decodable {
+    var id: String
+    var name: String
+    var arguments: String
+}
+
+/// One persisted message from `ai.conversation.get`. Tool results refer back
+/// to the call they answer by id.
+struct AIHistoryMessage: Decodable {
+    var role: String
+    var text: String?
+    var toolCalls: [AIHistoryToolCall]?
+    var toolCallId: String?
+}
+
+struct AIConversationView: Decodable {
+    var id: Int64
+    var messages: [AIHistoryMessage]
 }
 
 struct DeletedResult: Decodable {
@@ -266,6 +307,9 @@ struct DeletedResult: Decodable {
     var resized: Bool?
     var answered: Bool?
     var offset: Int?
+    /// Set by `ai.conversation.delete` when the removed thread was the one
+    /// the host was continuing.
+    var active: Bool?
 }
 
 struct HostKeyPrompt: Codable, Hashable {
@@ -425,6 +469,16 @@ struct RemoteEntry: Decodable, Identifiable, Hashable {
 struct FilesListResult: Decodable {
     var path: String
     var entries: [RemoteEntry]
+}
+
+/// A remote UTF-8 file opened in the built-in editor. `revision` is the
+/// content identity returned by the core; saving with it prevents silently
+/// overwriting a file someone else changed in the meantime.
+struct RemoteTextDocument: Decodable {
+    var text: String
+    var revision: String
+    var bom: Bool
+    var size: Int
 }
 
 /// One transfer row. Mirrors `mobilecore.fileTransfer`.

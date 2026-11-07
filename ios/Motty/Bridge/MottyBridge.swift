@@ -387,7 +387,152 @@ final class MottyBridge: ObservableObject, @unchecked Sendable {
         }
         var conversation = AIConversation()
         conversation.runID = aiConversation(sessionID).runID
+        conversation.historyLoaded = true
         aiConversations[sessionID] = conversation
+    }
+
+    /// Restores the thread the host was last using. The panel calls this once
+    /// when it opens, so a reconnect or a fresh app launch still shows the
+    /// earlier conversation.
+    func loadAIConversationIfNeeded(sessionID: UInt32) {
+        DispatchQueue.main.async {
+            let conversation = self.aiConversation(sessionID)
+            guard !conversation.historyLoaded,
+                  conversation.messages.isEmpty,
+                  conversation.runID == nil else { return }
+            self.loadAIConversation(sessionID: sessionID, conversationID: 0)
+        }
+    }
+
+    /// Loads one saved conversation. Zero means the host's active thread;
+    /// loading another one makes it active so the next message continues it.
+    func loadAIConversation(
+        sessionID: UInt32,
+        conversationID: Int64,
+        completion: ((Result<Void, Error>) -> Void)? = nil
+    ) {
+        struct Params: Encodable {
+            let sessionId: UInt32
+            let conversationId: Int64
+        }
+        queue.async {
+            do {
+                let result: AIConversationView = try self.callSync(
+                    "ai.conversation.get",
+                    params: Params(sessionId: sessionID, conversationId: conversationID)
+                )
+                DispatchQueue.main.async {
+                    var current = self.aiConversation(sessionID)
+                    guard current.runID == nil else {
+                        completion?(.success(()))
+                        return
+                    }
+                    // A message typed while the read was in flight outranks
+                    // the saved copy; never replace what the user just sent.
+                    if conversationID == 0 && !current.messages.isEmpty {
+                        current.historyLoaded = true
+                        self.aiConversations[sessionID] = current
+                        completion?(.success(()))
+                        return
+                    }
+                    current.messages = Self.chatMessages(from: result.messages)
+                    current.historyLoaded = true
+                    current.pendingApproval = nil
+                    self.aiConversations[sessionID] = current
+                    completion?(.success(()))
+                }
+            } catch {
+                DispatchQueue.main.async { completion?(.failure(error)) }
+            }
+        }
+    }
+
+    func loadAIHistory(
+        sessionID: UInt32,
+        completion: @escaping (Result<[AIConversationSummary], Error>) -> Void
+    ) {
+        struct Params: Encodable { let sessionId: UInt32 }
+        queue.async {
+            do {
+                let result: AIConversationListResult = try self.callSync(
+                    "ai.conversations",
+                    params: Params(sessionId: sessionID)
+                )
+                DispatchQueue.main.async { completion(.success(result.conversations)) }
+            } catch {
+                DispatchQueue.main.async { completion(.failure(error)) }
+            }
+        }
+    }
+
+    func deleteAIConversation(
+        sessionID: UInt32,
+        conversationID: Int64,
+        completion: @escaping (Result<Void, Error>) -> Void
+    ) {
+        struct Params: Encodable {
+            let sessionId: UInt32
+            let conversationId: Int64
+        }
+        queue.async {
+            do {
+                let result: DeletedResult = try self.callSync(
+                    "ai.conversation.delete",
+                    params: Params(sessionId: sessionID, conversationId: conversationID)
+                )
+                DispatchQueue.main.async {
+                    if result.active == true {
+                        var conversation = AIConversation()
+                        conversation.historyLoaded = true
+                        self.aiConversations[sessionID] = conversation
+                    }
+                    completion(.success(()))
+                }
+            } catch {
+                DispatchQueue.main.async { completion(.failure(error)) }
+            }
+        }
+    }
+
+    /// Turns stored roles back into the rows the chat panel draws. Tool
+    /// results fill the card of the call they answer.
+    private static func chatMessages(from history: [AIHistoryMessage]) -> [AIChatMessage] {
+        var messages: [AIChatMessage] = []
+        // Tool call ids repeat across runs; SwiftUI row ids must not.
+        var toolCards: [String: Int] = [:]
+        for item in history {
+            switch item.role {
+            case "user":
+                guard let text = item.text, !text.isEmpty else { continue }
+                messages.append(AIChatMessage(id: UUID().uuidString, role: .user, text: text))
+            case "assistant":
+                if let text = item.text, !text.isEmpty {
+                    messages.append(AIChatMessage(id: UUID().uuidString, role: .assistant, text: text))
+                }
+                for call in item.toolCalls ?? [] {
+                    messages.append(AIChatMessage(
+                        id: UUID().uuidString,
+                        role: .tool,
+                        text: "",
+                        toolCallID: call.id,
+                        toolName: call.name,
+                        toolArguments: call.arguments,
+                        toolRunning: false
+                    ))
+                    if !call.id.isEmpty {
+                        toolCards[call.id] = messages.count - 1
+                    }
+                }
+            case "tool":
+                guard let id = item.toolCallId, let index = toolCards[id] else { continue }
+                messages[index].toolResult = item.text
+                messages[index].toolRunning = false
+                messages[index].isError = item.text?.hasPrefix("Error: ") == true
+            default:
+                break
+            }
+        }
+        return messages
     }
 
     private func handleAIEvent(_ event: AIEvent) {
@@ -447,16 +592,17 @@ final class MottyBridge: ObservableObject, @unchecked Sendable {
                 conversation.messages[index].streaming = false
             }
             conversation.messages.append(AIChatMessage(
-                id: event.id?.isEmpty == false ? event.id! : UUID().uuidString,
+                id: UUID().uuidString,
                 role: .tool,
                 text: "",
+                toolCallID: event.id,
                 toolName: event.name,
                 toolArguments: event.arguments,
                 toolRunning: true
             ))
         case "ai.toolResult":
             if let id = event.id,
-               let index = conversation.messages.lastIndex(where: { $0.role == .tool && $0.id == id }) {
+               let index = conversation.messages.lastIndex(where: { $0.role == .tool && $0.toolCallID == id }) {
                 conversation.messages[index].toolResult = event.text
                 conversation.messages[index].toolRunning = false
                 conversation.messages[index].isError = event.isError ?? false
@@ -592,11 +738,22 @@ final class MottyBridge: ObservableObject, @unchecked Sendable {
         }
     }
 
+    /// Sets the scrollback view to an absolute line offset. The terminal
+    /// coalesces touch updates and sends only the latest target every frame,
+    /// so a fast fling cannot queue a long tail of stale scroll calls.
+    func scrollTo(sessionID: UInt32, offset: Int) {
+        struct Params: Encodable { let id: UInt32; let offset: Int }
+        queue.async {
+            let _: DeletedResult? = try? self.callSync("sessions.scrollTo", params: Params(id: sessionID, offset: offset))
+        }
+    }
+
     // MARK: Files
 
     private func filesCall<T: Decodable>(
         _ method: String,
         params: Encodable,
+        publishError: Bool = true,
         completion: @escaping (Result<T, Error>) -> Void
     ) {
         filesQueue.async {
@@ -604,7 +761,7 @@ final class MottyBridge: ObservableObject, @unchecked Sendable {
                 let result: T = try self.callSync(method, params: params)
                 DispatchQueue.main.async { completion(.success(result)) }
             } catch {
-                self.publish(error)
+                if publishError { self.publish(error) }
                 DispatchQueue.main.async { completion(.failure(error)) }
             }
         }
@@ -623,6 +780,54 @@ final class MottyBridge: ObservableObject, @unchecked Sendable {
         filesCall(
             "files.list",
             params: FilesListParams(sessionId: sessionID, path: path),
+            completion: completion
+        )
+    }
+
+    struct OpenTextParams: Encodable {
+        let sessionId: UInt32
+        let path: String
+    }
+
+    func openRemoteText(
+        sessionID: UInt32,
+        path: String,
+        completion: @escaping (Result<RemoteTextDocument, Error>) -> Void
+    ) {
+        filesCall(
+            "files.openText",
+            params: OpenTextParams(sessionId: sessionID, path: path),
+            publishError: false,
+            completion: completion
+        )
+    }
+
+    struct SaveTextParams: Encodable {
+        let sessionId: UInt32
+        let path: String
+        let text: String
+        let revision: String
+        let bom: Bool
+    }
+
+    func saveRemoteText(
+        sessionID: UInt32,
+        path: String,
+        text: String,
+        revision: String,
+        bom: Bool,
+        completion: @escaping (Result<RemoteTextDocument, Error>) -> Void
+    ) {
+        filesCall(
+            "files.saveText",
+            params: SaveTextParams(
+                sessionId: sessionID,
+                path: path,
+                text: text,
+                revision: revision,
+                bom: bom
+            ),
+            publishError: false,
             completion: completion
         )
     }
@@ -706,6 +911,20 @@ final class MottyBridge: ObservableObject, @unchecked Sendable {
         filesCall(
             "files.mkdir",
             params: Params(sessionId: sessionID, path: path, all: all)
+        ) { (result: Result<OKResult, Error>) in
+            completion?(result.failureError)
+        }
+    }
+
+    func createFile(
+        sessionID: UInt32,
+        path: String,
+        completion: ((Error?) -> Void)? = nil
+    ) {
+        filesCall(
+            "files.create",
+            params: FilesPathParams(sessionId: sessionID, path: path),
+            publishError: false
         ) { (result: Result<OKResult, Error>) in
             completion?(result.failureError)
         }

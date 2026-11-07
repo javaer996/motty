@@ -16,3 +16,9 @@ __pycache__/
 # website
 /website/node_modules/
 /.wrangler/
+
+/ios/.build/
+/ios/.derived/
+
+/ios/build/
+/ios/Frameworks/

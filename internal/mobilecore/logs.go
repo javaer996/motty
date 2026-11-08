@@ -138,19 +138,23 @@ func (m *logManager) begin(s *session) {
 	if hostName == "" {
 		hostName = s.host.Address
 	}
+	protocol := sessionlog.ProtocolSSH
+	if s.local {
+		protocol = sessionlog.ProtocolLocal
+	}
 	record := sessionlog.Record{
 		ID:         id,
 		RunID:      m.runID,
 		Host:       hostName,
 		Address:    s.host.Address,
 		Account:    s.host.User,
-		Protocol:   sessionlog.ProtocolSSH,
+		Protocol:   protocol,
 		StartedAt:  time.Now().UTC(),
 		Port:       s.host.Port,
 		CatalogID:  s.host.ID,
 		TargetKind: sessionlog.TargetSavedHost,
 	}
-	if s.host.ID == "" {
+	if s.local || s.host.ID == "" {
 		record.TargetKind = sessionlog.TargetUnknown
 	}
 	m.mu.Lock()
@@ -444,13 +448,13 @@ func (a *App) callLogs(method string, params json.RawMessage) (bool, any, error)
 	switch method {
 	case "logs.list":
 		var request struct {
-			Search     string `json:"search"`
-			Favorite   *bool  `json:"favorite"`
-			Outcome    string `json:"outcome"`
-			Status     string `json:"status"`
-			Limit      int    `json:"limit"`
-			CursorAt   int64  `json:"cursorStartedAt"`
-			CursorID   string `json:"cursorId"`
+			Search   string `json:"search"`
+			Favorite *bool  `json:"favorite"`
+			Outcome  string `json:"outcome"`
+			Status   string `json:"status"`
+			Limit    int    `json:"limit"`
+			CursorAt int64  `json:"cursorStartedAt"`
+			CursorID string `json:"cursorId"`
 		}
 		if err := decodeParams(params, &request); err != nil {
 			return true, nil, err
@@ -460,9 +464,9 @@ func (a *App) callLogs(method string, params json.RawMessage) (bool, any, error)
 			return true, nil, err
 		}
 		query := sessionlog.Query{
-			Sort:    sessionlog.SortStartedDesc,
-			Search:  strings.TrimSpace(request.Search),
-			Limit:   request.Limit,
+			Sort:     sessionlog.SortStartedDesc,
+			Search:   strings.TrimSpace(request.Search),
+			Limit:    request.Limit,
 			Favorite: request.Favorite,
 		}
 		switch strings.ToLower(strings.TrimSpace(request.Outcome)) {

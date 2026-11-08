@@ -182,7 +182,7 @@ func TestAIHistoryIsScopedToHost(t *testing.T) {
 		host:    Host{ID: "host-other", Label: "other", Address: "other.test", User: "root", Port: 22},
 		manager: app.sessions,
 		phase:   sshconn.PhaseConnected,
-		done:    make(chan struct{}),
+		run:     newSessionRun(),
 		wake:    make(chan struct{}, 1),
 	}
 	app.sessions.mu.Lock()

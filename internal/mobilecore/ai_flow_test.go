@@ -58,7 +58,7 @@ func addTestSession(t *testing.T, app *App, id uint32) {
 		cols:     20,
 		rows:     5,
 		phase:    sshconn.PhaseConnected,
-		done:     make(chan struct{}),
+		run:      newSessionRun(),
 		wake:     make(chan struct{}, 1),
 	}
 	app.sessions.mu.Lock()

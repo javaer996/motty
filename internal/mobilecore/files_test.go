@@ -137,7 +137,7 @@ func TestFilesRejectsUnknownOrDisconnectedSessions(t *testing.T) {
 		id:      3,
 		manager: app.sessions,
 		phase:   sshconn.PhaseFailed,
-		done:    make(chan struct{}),
+		run:     newSessionRun(),
 		wake:    make(chan struct{}, 1),
 	}
 	app.sessions.mu.Lock()
@@ -168,7 +168,7 @@ func TestFilesDownloadRejectsOutsideLocalPaths(t *testing.T) {
 		id:      4,
 		manager: app.sessions,
 		phase:   sshconn.PhaseConnected,
-		done:    make(chan struct{}),
+		run:     newSessionRun(),
 		wake:    make(chan struct{}, 1),
 	}
 	app.sessions.mu.Lock()

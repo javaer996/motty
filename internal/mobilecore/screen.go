@@ -31,14 +31,14 @@ const (
 	screenHeaderSize = 48
 	screenCellSize   = 16
 
-	screenFlagAltScreen     = 1 << 0
-	screenFlagCursorVisible = 1 << 1
-	screenFlagCursorSteady  = 1 << 2
+	screenFlagAltScreen      = 1 << 0
+	screenFlagCursorVisible  = 1 << 1
+	screenFlagCursorSteady   = 1 << 2
 	screenFlagBracketedPaste = 1 << 3
-	screenFlagAppCursorKeys = 1 << 4
-	screenFlagReverseVideo  = 1 << 5
-	screenFlagMouse         = 1 << 6
-	screenFlagSync          = 1 << 7
+	screenFlagAppCursorKeys  = 1 << 4
+	screenFlagReverseVideo   = 1 << 5
+	screenFlagMouse          = 1 << 6
+	screenFlagSync           = 1 << 7
 )
 
 // snapshotSize reports how many bytes encodeScreen would write.

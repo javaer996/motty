@@ -20,6 +20,13 @@ type Config struct {
 	DataDir string
 	// Version is the marketing version the front end shows.
 	Version string
+	// LocalShell enables sessions.openLocal. Android sets it; iOS leaves it
+	// false because the system does not allow starting processes.
+	LocalShell bool
+	// VaultKey is the 32-byte vault data key the platform keystore already
+	// unwrapped. Android supplies it; other platforms leave it nil and the
+	// platform keystore keeps the key instead.
+	VaultKey []byte
 }
 
 // App is the whole application core. One per process.
@@ -46,10 +53,25 @@ func Start(cfg Config) (*App, error) {
 	if strings.TrimSpace(cfg.DataDir) == "" {
 		return nil, errorf(CodeBadRequest, "a data directory is required")
 	}
+	if len(cfg.VaultKey) != 0 && len(cfg.VaultKey) != 32 {
+		return nil, errorf(CodeBadRequest, "the vault key must be 32 bytes")
+	}
 	if err := os.MkdirAll(cfg.DataDir, 0o700); err != nil {
 		return nil, errorf(CodeInternal, "cannot create the data directory: %v", err)
 	}
-	data, err := openDataStore(cfg.DataDir)
+	if cfg.LocalShell {
+		for _, name := range []string{"home", "tmp"} {
+			if err := os.MkdirAll(filepath.Join(cfg.DataDir, name), 0o700); err != nil {
+				return nil, errorf(CodeInternal, "cannot create the local shell directory: %v", err)
+			}
+		}
+	}
+	data, err := openDataStoreWithKey(cfg.DataDir, cfg.VaultKey)
+	// The key was copied into the store; do not leave another copy in memory.
+	for i := range cfg.VaultKey {
+		cfg.VaultKey[i] = 0
+	}
+	cfg.VaultKey = nil
 	if err != nil {
 		return nil, err
 	}
@@ -495,6 +517,18 @@ func (a *App) call(method string, params json.RawMessage) (any, error) {
 			return nil, err
 		}
 		return a.sessions.open(request.HostID, request.Cols, request.Rows)
+	case "sessions.openLocal":
+		var request struct {
+			Cols int `json:"cols"`
+			Rows int `json:"rows"`
+		}
+		if err := decodeParams(params, &request); err != nil {
+			return nil, err
+		}
+		if !a.cfg.LocalShell {
+			return nil, errorf(CodeUnavailable, "this platform does not support a local shell")
+		}
+		return a.sessions.openLocal(request.Cols, request.Rows)
 	case "sessions.close":
 		var request struct {
 			ID uint32 `json:"id"`
@@ -631,6 +665,7 @@ func (a *App) info() map[string]any {
 		"goVersion":     runtime.Version(),
 		"startedAt":     a.started.Unix(),
 		"eventsDropped": a.events.droppedCount(),
+		"localShell":    a.cfg.LocalShell,
 	}
 }
 

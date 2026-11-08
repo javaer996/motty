@@ -17,7 +17,7 @@ func fakeSession(t *testing.T, app *App, id uint32, host Host) {
 		manager: app.sessions,
 		phase:   sshconn.PhaseFailed,
 		host:    host,
-		done:    make(chan struct{}),
+		run:     newSessionRun(),
 		wake:    make(chan struct{}, 1),
 	}
 	app.sessions.mu.Lock()

@@ -41,6 +41,21 @@ type SessionInfo struct {
 	Error       string `json:"error,omitempty"`
 	Method      string `json:"method,omitempty"`
 	Server      string `json:"serverVersion,omitempty"`
+	// Local marks a shell running on this device instead of an SSH host.
+	Local bool `json:"local,omitempty"`
+}
+
+// shellBackend is the part of a running shell the session drives. Both
+// *sshconn.Shell and *localshell.Shell satisfy it; the terminal pump and the
+// input path only need this much.
+type shellBackend interface {
+	Drain(dst []byte) []byte
+	Write(p []byte) bool
+	Resize(cols, rows int)
+	Done() <-chan struct{}
+	Err() error
+	Close()
+	Kind() shellkind.Kind
 }
 
 // session is one SSH shell and the terminal state it feeds. The terminal is
@@ -54,7 +69,8 @@ type session struct {
 	mu          sync.Mutex
 	terminal    *term.Terminal
 	conn        *sshconn.Conn
-	shell       *sshconn.Shell
+	shell       shellBackend
+	local       bool
 	exec        *terminalExec
 	phase       sshconn.Phase
 	err         error
@@ -78,8 +94,9 @@ type session struct {
 	// removes it, so a stale password is not tried again on every reconnect.
 	filledSecret string
 
-	done     chan struct{}
-	doneOnce sync.Once
+	// run is the current connection generation. Reconnect replaces it, so a
+	// stale watcher can only ever end the generation it was started for.
+	run *sessionRun
 	// wake carries connection-status changes to the watcher; outputWake
 	// carries shell output to the terminal pump. They are separate on purpose:
 	// one buffered channel shared by both consumers loses a wakeup whenever
@@ -87,6 +104,27 @@ type session struct {
 	// keystroke.
 	wake       chan struct{}
 	outputWake chan struct{}
+	// sizeHint receives a signal whenever the front end resizes the session.
+	// A local shell waits on it before starting, so the pty is created at the
+	// size the view will keep instead of the default 80x24.
+	sizeHint chan struct{}
+}
+
+// sessionRun is one connection generation. Its done channel ends the pump and
+// the status watcher; once keeps a second close from panicking.
+type sessionRun struct {
+	done chan struct{}
+	once sync.Once
+}
+
+func newSessionRun() *sessionRun {
+	return &sessionRun{done: make(chan struct{})}
+}
+
+func (run *sessionRun) markDone() {
+	if run != nil {
+		run.once.Do(func() { close(run.done) })
+	}
 }
 
 // terminalExec is one command the assistant typed into the shell, waiting for
@@ -157,6 +195,15 @@ func (m *sessionManager) open(hostID string, cols, rows int) (SessionInfo, error
 	if err := host.Validate(); err != nil {
 		return SessionInfo{}, err
 	}
+	s := m.startSession(host, cols, rows, false)
+	m.logBegin(s)
+	go s.connect()
+	return s.info(), nil
+}
+
+// startSession registers a new tab. It is shared by SSH and local sessions;
+// the caller starts the connection once the journal row exists.
+func (m *sessionManager) startSession(host Host, cols, rows int, local bool) *session {
 	if cols < 1 {
 		cols = defaultCols
 	}
@@ -166,13 +213,15 @@ func (m *sessionManager) open(hostID string, cols, rows int) (SessionInfo, error
 	s := &session{
 		host:        host,
 		manager:     m,
+		local:       local,
 		cols:        cols,
 		rows:        rows,
 		terminal:    term.New(cols, rows, defaultScrollback),
 		recordStart: time.Now(),
-		done:        make(chan struct{}),
+		run:         newSessionRun(),
 		wake:        make(chan struct{}, 1),
 		outputWake:  make(chan struct{}, 1),
+		sizeHint:    make(chan struct{}, 1),
 	}
 	m.mu.Lock()
 	m.nextID++
@@ -183,10 +232,7 @@ func (m *sessionManager) open(hostID string, cols, rows int) (SessionInfo, error
 	m.sessions[s.id] = s
 	m.activeID = s.id
 	m.mu.Unlock()
-
-	m.logBegin(s)
-	go s.connect()
-	return s.info(), nil
+	return s
 }
 
 func (m *sessionManager) close(id uint32) error {
@@ -316,23 +362,34 @@ func (m *sessionManager) shutdown() {
 // ---- one session ----
 
 func (s *session) wakeup() {
+	// Reconnect replaces the channel while the old connection may still be
+	// notifying; read it under the same lock that swaps it.
+	s.mu.Lock()
+	wake := s.wake
+	s.mu.Unlock()
 	select {
-	case s.wake <- struct{}{}:
+	case wake <- struct{}{}:
 	default:
 	}
 }
 
 func (s *session) outputWakeup() {
+	s.mu.Lock()
+	wake := s.outputWake
+	s.mu.Unlock()
 	select {
-	case s.outputWake <- struct{}{}:
+	case wake <- struct{}{}:
 	default:
 	}
 }
 
 func (s *session) connect() {
+	s.mu.Lock()
+	run := s.run
+	s.mu.Unlock()
 	config, err := s.dialConfig()
 	if err != nil {
-		s.fail(err)
+		s.fail(run, err)
 		return
 	}
 	conn := sshconn.Dial(config)
@@ -341,10 +398,10 @@ func (s *session) connect() {
 	s.phase = sshconn.PhaseConnecting
 	s.mu.Unlock()
 	s.mu.Lock()
-	done, wake := s.done, s.wake
+	wake := s.wake
 	s.mu.Unlock()
 	s.emitState()
-	s.watch(conn, done, wake)
+	s.watch(conn, run, wake)
 }
 
 func (s *session) dialConfig() (sshconn.Config, error) {
@@ -483,12 +540,12 @@ func parseProxyJumps(spec, defaultUser string) ([]sshconn.Endpoint, error) {
 	return out, nil
 }
 
-func (s *session) watch(conn *sshconn.Conn, done <-chan struct{}, wake <-chan struct{}) {
+func (s *session) watch(conn *sshconn.Conn, run *sessionRun, wake <-chan struct{}) {
 	ticker := time.NewTicker(statusPoll)
 	defer ticker.Stop()
 	for {
 		select {
-		case <-done:
+		case <-run.done:
 			return
 		case <-wake:
 		case <-ticker.C:
@@ -503,15 +560,15 @@ func (s *session) watch(conn *sshconn.Conn, done <-chan struct{}, wake <-chan st
 		if !changed {
 			continue
 		}
-		s.applyStatus(status)
+		s.applyStatus(status, run)
 		if status.Phase == sshconn.PhaseFailed || status.Phase == sshconn.PhaseClosed {
-			s.markDone()
+			run.markDone()
 			return
 		}
 	}
 }
 
-func (s *session) applyStatus(status sshconn.Status) {
+func (s *session) applyStatus(status sshconn.Status, run *sessionRun) {
 	s.mu.Lock()
 	s.phase = status.Phase
 	s.err = status.Err
@@ -537,7 +594,7 @@ func (s *session) applyStatus(status sshconn.Status) {
 		s.filledSecret = ""
 		s.mu.Unlock()
 		if !hasShell {
-			s.openShell()
+			s.openShell(run)
 		}
 		s.manager.logConnected(s.id)
 		s.manager.forwardConnected(s)
@@ -552,7 +609,7 @@ func (s *session) applyStatus(status sshconn.Status) {
 	}
 }
 
-func (s *session) openShell() {
+func (s *session) openShell(run *sessionRun) {
 	s.mu.Lock()
 	conn := s.conn
 	cols, rows := s.cols, s.rows
@@ -573,37 +630,32 @@ func (s *session) openShell() {
 		s.mu.Unlock()
 		s.manager.logFinish(s.id, sessionlog.StatusFailed, sessionlog.ReasonShellFailed)
 		s.emitState()
-		s.markDone()
+		run.markDone()
 		return
 	}
 	s.mu.Lock()
 	s.shell = shell
 	s.connectedAt = time.Now()
-	done, outputWake := s.done, s.outputWake
+	outputWake := s.outputWake
 	s.mu.Unlock()
 	s.emitState()
-	go s.pump(shell, done, outputWake)
+	go s.pump(shell, run.done, outputWake)
 }
 
-func (s *session) pump(shell *sshconn.Shell, done <-chan struct{}, wake <-chan struct{}) {
+func (s *session) pump(shell shellBackend, done <-chan struct{}, wake <-chan struct{}) {
 	buf := make([]byte, 0, 64*1024)
-	for {
-		select {
-		case <-done:
-			return
-		case <-wake:
-		}
+	drain := func() {
 		for {
 			buf = shell.Drain(buf[:0])
 			if len(buf) == 0 {
-				break
+				return
 			}
 			s.mu.Lock()
 			display := buf
 			if s.exec != nil {
-				var done bool
-				display, done = s.exec.tap.Feed(buf)
-				if done {
+				var finished bool
+				display, finished = s.exec.tap.Feed(buf)
+				if finished {
 					exec := s.exec
 					s.exec = nil
 					exec.done <- exec.tap.Result()
@@ -616,19 +668,36 @@ func (s *session) pump(shell *sshconn.Shell, done <-chan struct{}, wake <-chan s
 			s.mu.Unlock()
 		}
 	}
+	for {
+		select {
+		case <-done:
+			// A shell prints its last line just before it ends; both backends
+			// promise that Drain holds that output once Done has closed.
+			drain()
+			return
+		case <-wake:
+		}
+		drain()
+	}
 }
 
-func (s *session) markDone() {
-	s.doneOnce.Do(func() { close(s.done) })
+// doneChannel is the end of the connection generation the caller is looking
+// at. A reconnect starts a new generation and ends the old channel, so a
+// desktop bound to this tunnel still sees its transport disappear.
+func (s *session) doneChannel() <-chan struct{} {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.run.done
 }
 
 func (s *session) close() {
-	s.markDone()
 	s.mu.Lock()
+	run := s.run
 	shell := s.shell
 	conn := s.conn
 	s.shell = nil
 	s.mu.Unlock()
+	run.markDone()
 	s.manager.logFinish(s.id, sessionlog.StatusEnded, sessionlog.ReasonUserClosed)
 	if shell != nil {
 		shell.Close()
@@ -649,6 +718,7 @@ func (s *session) reconnect() (SessionInfo, error) {
 		s.mu.Unlock()
 		return SessionInfo{}, errorf(CodeConflict, "the session is not disconnected")
 	}
+	oldRun := s.run
 	oldShell := s.shell
 	oldConn := s.conn
 	s.shell = nil
@@ -660,14 +730,16 @@ func (s *session) reconnect() (SessionInfo, error) {
 	s.method = ""
 	s.server = ""
 	s.connectedAt = time.Time{}
-	s.done = make(chan struct{})
-	s.doneOnce = sync.Once{}
+	s.run = newSessionRun()
 	s.wake = make(chan struct{}, 1)
 	s.outputWake = make(chan struct{}, 1)
 	s.recorder.Reset()
 	s.recordStart = time.Now()
 	info := s.infoLocked()
 	s.mu.Unlock()
+	// Release the old pump and watcher even if the previous attempt had not
+	// marked its generation done yet.
+	oldRun.markDone()
 
 	// A manual redial is a new logical session: the old row ends and a new
 	// one starts, so the journal never claims one connection lived through it.
@@ -682,18 +754,22 @@ func (s *session) reconnect() (SessionInfo, error) {
 		oldConn.Close()
 	}
 	s.emitState()
-	go s.connect()
+	if s.local {
+		go s.connectLocal()
+	} else {
+		go s.connect()
+	}
 	return info, nil
 }
 
-func (s *session) fail(err error) {
+func (s *session) fail(run *sessionRun, err error) {
 	s.mu.Lock()
 	s.err = err
 	s.phase = sshconn.PhaseFailed
 	s.mu.Unlock()
 	s.manager.logFinish(s.id, sessionlog.StatusFailed, sessionlog.ReasonConnectFailed)
 	s.emitState()
-	s.markDone()
+	run.markDone()
 }
 
 func (s *session) info() SessionInfo {
@@ -721,6 +797,7 @@ func (s *session) infoLocked() SessionInfo {
 		Rows:    s.rows,
 		Method:  s.method,
 		Server:  s.server,
+		Local:   s.local,
 	}
 	if !s.connectedAt.IsZero() {
 		info.ConnectedAt = s.connectedAt.Unix()
@@ -753,13 +830,17 @@ func (s *session) emitPrompt(kind string, status sshconn.Status) {
 	payload := map[string]any{"sessionID": s.id, "kind": kind}
 	switch kind {
 	case "hostkey":
+		known := status.HostKey.Known
+		if known == nil {
+			known = []string{}
+		}
 		payload["hostKey"] = map[string]any{
 			"address":     status.HostKey.Address,
 			"type":        status.HostKey.Type,
 			"fingerprint": status.HostKey.Fingerprint,
-			"known":       status.HostKey.Known,
+			"known":       known,
 			"file":        status.HostKey.File,
-			"changed":     len(status.HostKey.Known) > 0,
+			"changed":     len(known) > 0,
 		}
 	case "password":
 		questions := make([]map[string]any, 0, len(status.Questions))
@@ -848,6 +929,7 @@ func (s *session) execCommand(ctx context.Context, args tools.TerminalExecArgs) 
 	// The pump must see the tap before any output can arrive, so publish it
 	// first and retract it if the shell refuses the input.
 	s.exec = exec
+	runDone := s.run.done
 	if !s.shell.Write(wrapped) {
 		s.exec = nil
 		s.mu.Unlock()
@@ -872,7 +954,7 @@ func (s *session) execCommand(ctx context.Context, args tools.TerminalExecArgs) 
 		return s.abortExec(exec, true), nil
 	case <-ctx.Done():
 		return s.abortExec(exec, true), nil
-	case <-s.done:
+	case <-runDone:
 		return s.abortExec(exec, true), nil
 	}
 }
@@ -962,6 +1044,10 @@ func (s *session) resize(cols, rows int) error {
 	}
 	if s.shell != nil {
 		s.shell.Resize(cols, rows)
+	}
+	select {
+	case s.sizeHint <- struct{}{}:
+	default:
 	}
 	return nil
 }

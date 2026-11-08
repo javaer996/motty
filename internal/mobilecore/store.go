@@ -62,11 +62,22 @@ type dataStore struct {
 }
 
 func openDataStore(dir string) (*dataStore, error) {
+	return openDataStoreWithKey(dir, nil)
+}
+
+// openDataStoreWithKey opens the shared files with a data key the platform
+// already unwrapped. Android supplies one; other platforms pass nil and the
+// platform keystore keeps it.
+func openDataStoreWithKey(dir string, key []byte) (*dataStore, error) {
 	config, err := configstore.Open(filepath.Join(dir, "config.db"), configFormat)
 	if err != nil {
 		return nil, errorf(CodeInternal, "cannot open the shared configuration: %v", err)
 	}
-	vaultFile, err := vault.Open(filepath.Join(dir, "vault.json"), platformKeystore(dir))
+	keystore := platformKeystore(dir)
+	if len(key) > 0 {
+		keystore = vault.NewStaticKeystore(key)
+	}
+	vaultFile, err := vault.Open(filepath.Join(dir, "vault.json"), keystore)
 	if err != nil {
 		config.Close()
 		return nil, errorf(CodeInternal, "cannot open the saved secrets: %v", err)

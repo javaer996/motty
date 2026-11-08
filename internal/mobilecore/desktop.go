@@ -500,7 +500,7 @@ func (d *desktopSession) openSession() (desktop.Session, error) {
 		dial = conn.DialContext
 		options.Encrypted = true
 		d.mu.Lock()
-		d.tunnelDone = tunnel.done
+		d.tunnelDone = tunnel.doneChannel()
 		d.mu.Unlock()
 	}
 	if host.Protocol == ProtocolRDP {

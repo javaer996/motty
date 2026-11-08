@@ -292,7 +292,7 @@ func TestCompletionWorksWithoutAHistoryFile(t *testing.T) {
 		manager: app.sessions,
 		phase:   sshconn.PhaseFailed,
 		host:    Host{ID: "host-9", Address: "example.com"},
-		done:    make(chan struct{}),
+		run:     newSessionRun(),
 		wake:    make(chan struct{}, 1),
 	}
 	app.sessions.mu.Lock()

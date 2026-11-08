@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="ic_launcher_background">#0D111A</color>
+    <color name="motty_background">#0D0E13</color>
+    <color name="motty_surface">#14161D</color>
+</resources>

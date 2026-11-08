@@ -11,6 +11,7 @@ struct AIChatView: View {
     @State private var showingPrivacy = false
     @State private var showingHistory = false
     @State private var confirmText = ""
+    @FocusState private var composerFocused: Bool
 
     private var conversation: AIConversation {
         bridge.aiConversation(sessionID)
@@ -369,6 +370,14 @@ struct AIChatView: View {
                     .padding(.horizontal, 10)
                     .padding(.vertical, 8)
                     .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 16))
+                    .overlay {
+                        if composerFocused {
+                            RainbowGlowBorder(cornerRadius: 16)
+                                .transition(.opacity)
+                        }
+                    }
+                    .animation(.easeInOut(duration: 0.25), value: composerFocused)
+                    .focused($composerFocused)
                     .disabled(!configured)
                 if conversation.isRunning {
                     Button {
@@ -397,6 +406,65 @@ struct AIChatView: View {
         let text = input
         input = ""
         bridge.sendAIMessage(sessionID: sessionID, text: text)
+    }
+}
+
+/// The ring around the composer while it holds the caret: a rainbow that
+/// travels around the field, wrapped in a glow that slowly breathes. The
+/// display link only runs while the view exists, and the view only exists
+/// while the field is focused.
+private struct RainbowGlowBorder: View {
+    var cornerRadius: CGFloat
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        Group {
+            if reduceMotion {
+                border(phase: 0, breath: 0.6)
+            } else {
+                TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
+                    let time = context.date.timeIntervalSinceReferenceDate
+                    border(
+                        phase: time.truncatingRemainder(dividingBy: 4) / 4 * 360,
+                        breath: (sin(time * 2.2) + 1) / 2
+                    )
+                }
+            }
+        }
+        .allowsHitTesting(false)
+    }
+
+    private func border(phase: Double, breath: Double) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        return ZStack {
+            shape
+                .strokeBorder(gradient(phase: phase), lineWidth: 3)
+                .blur(radius: 4)
+                .opacity(0.4 + 0.35 * breath)
+                .scaleEffect(1 + 0.008 * breath)
+            shape
+                .strokeBorder(gradient(phase: phase), lineWidth: 1.5)
+                .opacity(0.9)
+        }
+    }
+
+    private func gradient(phase: Double) -> AngularGradient {
+        AngularGradient(
+            gradient: Gradient(colors: [
+                Color(red: 1.00, green: 0.24, blue: 0.32),
+                Color(red: 1.00, green: 0.62, blue: 0.12),
+                Color(red: 1.00, green: 0.92, blue: 0.25),
+                Color(red: 0.35, green: 0.90, blue: 0.40),
+                Color(red: 0.20, green: 0.85, blue: 0.92),
+                Color(red: 0.32, green: 0.52, blue: 1.00),
+                Color(red: 0.72, green: 0.36, blue: 1.00),
+                Color(red: 1.00, green: 0.24, blue: 0.32),
+            ]),
+            center: .center,
+            startAngle: .degrees(phase),
+            endAngle: .degrees(phase + 360)
+        )
     }
 }
 

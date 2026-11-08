@@ -58,6 +58,8 @@ func (m *historyManager) record(host, command string) {
 	_ = m.queue.Record(host, command, time.Now())
 	m.mu.Lock()
 	delete(m.cache, host)
+	// "" is the cross-host list, which this command has also changed.
+	delete(m.cache, "")
 	m.mu.Unlock()
 }
 
@@ -143,17 +145,24 @@ func (s *session) currentLine() string {
 	return line
 }
 
-// candidates merges the curated parameter combinations, the host's remembered
-// commands, and the built-in catalog. Descriptions come back in locale.
+// How many history rows to offer. On an empty prompt the recent commands are
+// the whole answer; after typing a prefix a handful of matches is enough.
+const (
+	historyEmptyLimit = 8
+	historyLineLimit  = 5
+)
+
+// candidates merges the host's remembered commands, the curated parameter
+// combinations and the built-in catalogs. Descriptions come back in locale.
 func (a *App) candidates(host, line, locale string) ([]completionCandidateJSON, bool) {
 	out := make([]completionCandidateJSON, 0, 16)
 	seen := make(map[string]struct{}, 16)
-	add := func(candidate completion.Candidate) {
+	add := func(candidate completion.Candidate) bool {
 		if len(out) >= completion.MaxCandidates || candidate.Insert == "" {
-			return
+			return false
 		}
 		if _, ok := seen[candidate.Insert]; ok {
-			return
+			return false
 		}
 		seen[candidate.Insert] = struct{}{}
 		out = append(out, completionCandidateJSON{
@@ -162,20 +171,62 @@ func (a *App) candidates(host, line, locale string) ([]completionCandidateJSON, 
 			Desc:   completion.LocalizeDesc(candidate.Desc, locale),
 			Kind:   completionKindName(candidate.Kind),
 		})
+		return true
 	}
-	// The curated combinations answer "what do people usually type here".
-	for _, candidate := range completion.Combos(line, completion.MaxCandidates) {
-		add(candidate)
-	}
-	if line != "" && !cmdhistory.Secret(line) {
-		for _, rest := range cmdhistory.SuggestAll(a.history.entries(host), line, 5) {
-			add(completion.Candidate{
+	// history adds a host's remembered commands: whole commands at an empty
+	// prompt, or the rest of the line after what has been typed. When the host
+	// has nothing to offer, commands from other hosts fill in.
+	history := func(entries []cmdhistory.Entry, limit int) int {
+		added := 0
+		if line == "" {
+			for _, entry := range entries {
+				if added >= limit {
+					break
+				}
+				if cmdhistory.Secret(entry.Command) {
+					continue
+				}
+				if add(completion.Candidate{
+					Text:   entry.Command,
+					Insert: entry.Command,
+					Desc:   "From your history",
+					Kind:   completion.KindCommand,
+				}) {
+					added++
+				}
+			}
+			return added
+		}
+		for _, rest := range cmdhistory.SuggestRanked(entries, line, limit) {
+			if add(completion.Candidate{
 				Text:   line + rest,
 				Insert: rest,
 				Desc:   "From your history",
 				Kind:   completion.KindCommand,
-			})
+			}) {
+				added++
+			}
 		}
+		return added
+	}
+
+	if line == "" {
+		// The alphabetical catalog root list is noise on an empty prompt; the
+		// commands this host actually runs are the useful answer.
+		if history(a.history.entries(host), historyEmptyLimit) == 0 {
+			history(a.history.entries(""), historyEmptyLimit)
+		}
+		return out, false
+	}
+	if !cmdhistory.Secret(line) {
+		if history(a.history.entries(host), historyLineLimit) == 0 {
+			history(a.history.entries(""), historyLineLimit)
+		}
+	}
+
+	// The curated combinations answer "what do people usually type here".
+	for _, candidate := range completion.Combos(line, completion.MaxCandidates) {
+		add(candidate)
 	}
 	suppressed := false
 	if catalog := a.history.builtin(); catalog != nil {
@@ -184,6 +235,17 @@ func (a *App) candidates(host, line, locale string) ([]completionCandidateJSON, 
 		if !result.Suppressed {
 			for _, candidate := range result.Candidates {
 				add(candidate)
+			}
+			// Essentials covers commands the imported snapshot lacks:
+			// net-tools, iproute2, packet capture, database clients and the
+			// POSIX shell builtins.
+			if essentials := completion.Essentials(); essentials != nil {
+				extra := completion.Complete(essentials, line)
+				if !extra.Suppressed {
+					for _, candidate := range extra.Candidates {
+						add(candidate)
+					}
+				}
 			}
 		}
 	}

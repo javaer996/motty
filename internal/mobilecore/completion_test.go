@@ -94,3 +94,95 @@ func TestCompletionOffersParameterCombinationsInTheUiLanguage(t *testing.T) {
 		t.Fatalf("english combination = %+v", english)
 	}
 }
+
+// An empty prompt used to offer the alphabetically first catalog roots (acpi,
+// acpid, adb...). The commands the host actually ran are the useful answer.
+func TestCompletionUsesHistoryOnAnEmptyPrompt(t *testing.T) {
+	app, err := Start(Config{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Close()
+	fakeSession(t, app, 12, Host{ID: "host-12", Address: "example.com"})
+	app.history.record("host-12", "netstat -tulnp")
+	app.history.record("host-12", "docker ps -a")
+
+	candidates := completeLine(t, app, 12, "", "zh-Hans")
+	if len(candidates) != 2 {
+		t.Fatalf("empty prompt offered %+v", candidates)
+	}
+	if candidates[0].Text != "docker ps -a" || candidates[0].Insert != "docker ps -a" {
+		t.Fatalf("newest command not first: %+v", candidates)
+	}
+	if candidates[1].Text != "netstat -tulnp" {
+		t.Fatalf("second command = %q", candidates[1].Text)
+	}
+	if candidates[0].Desc != "来自你的命令历史" {
+		t.Fatalf("history description = %q", candidates[0].Desc)
+	}
+	if candidates[0].Kind != "command" {
+		t.Fatalf("history kind = %q", candidates[0].Kind)
+	}
+}
+
+// A command typed many times is a better hint than one typed once, even when
+// the single use is newer.
+func TestCompletionRanksHistoryByUse(t *testing.T) {
+	app, err := Start(Config{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Close()
+	fakeSession(t, app, 13, Host{ID: "host-13", Address: "example.com"})
+	app.history.record("host-13", "docker ps")
+	app.history.record("host-13", "docker ps -a")
+	app.history.record("host-13", "docker ps -a")
+	app.history.record("host-13", "docker ps -a")
+
+	candidates := completeLine(t, app, 13, "docker p", "en")
+	if len(candidates) == 0 || candidates[0].Text != "docker ps -a" {
+		t.Fatalf("most used command not first: %+v", candidates)
+	}
+	if candidates[0].Desc != "From your history" {
+		t.Fatalf("first candidate is not history: %+v", candidates)
+	}
+}
+
+// A host with no history of its own still gets the commands typed on the other
+// hosts.
+func TestCompletionFallsBackToOtherHostsHistory(t *testing.T) {
+	app, err := Start(Config{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Close()
+	fakeSession(t, app, 14, Host{ID: "host-14", Address: "example.com"})
+	app.history.record("another-host", "systemctl restart nginx")
+
+	candidates := completeLine(t, app, 14, "", "en")
+	if len(candidates) == 0 || candidates[0].Text != "systemctl restart nginx" {
+		t.Fatalf("cross-host history = %+v", candidates)
+	}
+}
+
+// The imported snapshot has no netstat; the hand-written essentials take over
+// once the command is unknown to it.
+func TestCompletionFallsBackToEssentials(t *testing.T) {
+	app, err := Start(Config{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Close()
+	fakeSession(t, app, 15, Host{ID: "host-15", Address: "example.com"})
+
+	candidates := completeLine(t, app, 15, "netstat -", "en")
+	texts := make(map[string]bool, len(candidates))
+	for _, candidate := range candidates {
+		texts[candidate.Text] = true
+	}
+	for _, want := range []string{"-t", "-u", "-l", "-n", "-p"} {
+		if !texts[want] {
+			t.Fatalf("netstat %s missing from %+v", want, candidates)
+		}
+	}
+}

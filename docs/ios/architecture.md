@@ -239,10 +239,15 @@ rectCount × 16 bytes:
   readline 的 Ctrl-A/E/K/U/W/R/L。UIKit 只在配件首次展示时读取高度，所以这里不改
   高度，只交换上排内容，键盘不会跳动。
 - 内联补全：输入停顿 0.22 秒后，`completion.complete` 读取屏幕上的当前命令行，
-  依次合并精选参数组合（`internal/completion/combos.go`）、本机历史与内置目录，
-  描述按界面语言本地化（`internal/completion/localize.go`）。上排变成可横向滚动的
-  建议芯片（命令、描述、将插入的后缀），点按即把后缀发送到 shell；整行恰好是某个
-  组合时不再有候选，上排恢复为按键。
+  依次合并本机历史（按使用次数、再按时间排序；本机没有匹配时用其它主机的历史补齐）、
+  精选参数组合（`internal/completion/combos.go`）、Carapace 内置目录与手写
+  essentials（`internal/completion/essentials.go`，补齐 netstat、ss、ip、iptables、
+  tcpdump、nmap、lsof、数据库客户端与 POSIX shell 内建等 Carapace 未覆盖的命令），
+  描述按界面语言本地化（`internal/completion/localize.go`）。空命令行不再展示按字母
+  排序的目录根命令，而是本机最近使用的命令。上排变成可横向滚动的建议芯片（命令、
+  描述、将插入的后缀），点按即把后缀发送到 shell；整行恰好是某个组合时不再有候选，
+  上排恢复为按键。`term` 的补全器理解短选项组合（`-tuln`、`-lah`）：组合中的每个
+  字母都按已用选项处理，带值的字母结束组合，因此继续补全时不会把整行判为不支持。
 - 硬件键盘：`UIKeyCommand` 映射到 `term` 的键盘编码（复用桌面键位规则）。
 - 中文 IME：`UITextInput` 组合输入，预编辑文本叠加显示，提交后发送。
 

@@ -151,6 +151,29 @@ final class ScrollLatencyUITests: XCTestCase {
         wait(for: [gone], timeout: 10)
     }
 
+    /// The imported catalog does not know netstat at all; the hand-written
+    /// essentials have to offer its common options after the command is typed.
+    func testCompletionOffersNetstatOptions() throws {
+        let (app, _) = try connect(autoType: "")
+
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
+        app.typeText("netstat -")
+
+        let chip = app.buttons["suggestion.0"]
+        XCTAssertTrue(chip.waitForExistence(timeout: 10), "no netstat option appeared")
+        // The chip shows only the suffix that will be inserted after the typed
+        // dash. The table is ordered by usefulness: a (all) comes first, then
+        // t (TCP).
+        XCTAssertTrue(
+            chip.label.hasPrefix("a. "),
+            "the first netstat option was not -a: \(chip.label)"
+        )
+        XCTAssertTrue(
+            app.buttons["suggestion.1"].label.hasPrefix("t. "),
+            "the second netstat option was not -t: \(app.buttons["suggestion.1"].label)"
+        )
+    }
+
     /// Several assistant providers can be configured and the active one
     /// switched. This walks the real settings screen, so the Swift form, the
     /// bridge and the Go save all have to agree on the provider list shape.

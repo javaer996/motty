@@ -278,6 +278,15 @@ func (c *Catalog) Root(token string) *Node {
 // VisibleFlags returns the options of a node including persistent options
 // inherited from its ancestors, in a stable order and without duplicates.
 func (c *Catalog) VisibleFlags(node *Node) []Flag {
+	flags := c.visibleFlagsInOrder(node)
+	sort.SliceStable(flags, func(i, j int) bool { return flags[i].Token() < flags[j].Token() })
+	return flags
+}
+
+// visibleFlagsInOrder is VisibleFlags in declaration order. The hand-written
+// essentials table lists the options people reach for first (netstat -t before
+// -W), and suggestion lists keep that order instead of an alphabetical one.
+func (c *Catalog) visibleFlagsInOrder(node *Node) []Flag {
 	if node == nil {
 		return nil
 	}
@@ -307,7 +316,6 @@ func (c *Catalog) VisibleFlags(node *Node) []Flag {
 	for _, f := range node.Persistent {
 		add(f)
 	}
-	sort.SliceStable(flags, func(i, j int) bool { return flags[i].Token() < flags[j].Token() })
 	return flags
 }
 

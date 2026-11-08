@@ -129,18 +129,21 @@ func Complete(catalog *Catalog, line string) Result {
 				continue
 			}
 			if strings.HasPrefix(token, "-") && len(token) > 1 {
-				if len(token) != 2 {
-					// Short-option clusters and long options spelled with one
-					// dash are not understood.
-					return Result{Suppressed: true}
+				// A multi-character option may be defined as one short name
+				// (-br, -sS) rather than a cluster of single letters.
+				if flag, ok := catalog.FindFlag(node, token); ok {
+					used[flag.Token()] = true
+					if flag.Value && !flag.Optional {
+						expect = &flag
+					}
+					continue
 				}
-				flag, ok := catalog.FindFlag(node, token)
-				if !ok {
+				// Otherwise it is a cluster of short options, as in -tuln or
+				// -lah. Every letter has to be a known option that does not
+				// consume a value; a value-taking letter ends the cluster and
+				// may carry its value in the rest of the word (-p22).
+				if !parseShortCluster(catalog, node, token, used, &expect) {
 					return Result{Suppressed: true}
-				}
-				used[flag.Token()] = true
-				if flag.Value && !flag.Optional {
-					expect = &flag
 				}
 				continue
 			}
@@ -210,6 +213,29 @@ func lineRune(r rune) bool {
 	return r == ' ' || strings.ContainsRune("-_.:@%+,=/", r)
 }
 
+// parseShortCluster marks every short option in token as used. A letter that
+// takes a value ends the cluster: the rest of the word is its value, or, when
+// the letter is last, the next word is. Unknown letters make the line
+// unsupported rather than guessed at.
+func parseShortCluster(catalog *Catalog, node *Node, token string, used map[string]bool, expect **Flag) bool {
+	letters := []rune(token[1:])
+	for index, letter := range letters {
+		flag, ok := catalog.FindFlag(node, "-"+string(letter))
+		if !ok {
+			return false
+		}
+		used[flag.Token()] = true
+		if !flag.Value {
+			continue
+		}
+		if index == len(letters)-1 && !flag.Optional {
+			*expect = &flag
+		}
+		return true
+	}
+	return true
+}
+
 func childByToken(node *Node, token string) *Node {
 	node.load()
 	for _, child := range node.Children {
@@ -248,7 +274,7 @@ func addChildren(node *Node, prefix string, result *Result) {
 }
 
 func addLongFlags(catalog *Catalog, node *Node, prefix string, used map[string]bool, result *Result) {
-	for _, flag := range catalog.VisibleFlags(node) {
+	for _, flag := range catalog.visibleFlagsInOrder(node) {
 		if flag.Long == "" {
 			continue
 		}
@@ -260,7 +286,7 @@ func addLongFlags(catalog *Catalog, node *Node, prefix string, used map[string]b
 }
 
 func addShortFlags(catalog *Catalog, node *Node, prefix string, used map[string]bool, result *Result) {
-	for _, flag := range catalog.VisibleFlags(node) {
+	for _, flag := range catalog.visibleFlagsInOrder(node) {
 		if flag.Short == "" {
 			continue
 		}

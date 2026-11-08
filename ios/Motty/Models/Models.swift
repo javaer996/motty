@@ -234,10 +234,63 @@ struct AIProvider: Codable, Equatable, Identifiable, Hashable {
 struct AISettings: Codable, Equatable {
     var providers: [AIProvider] = []
     var currentId: String?
+    var privacy: AIPrivacySettings?
 
     var current: AIProvider? {
         providers.first { $0.id == currentId } ?? providers.first
     }
+}
+
+/// Matches `mobilecore.aiPrivacySettings`: what the assistant hides before a
+/// message leaves the device. Addresses, account names and the current host
+/// are on by default; host names and e-mail addresses are opt-in.
+struct AIPrivacySettings: Codable, Equatable {
+    var enabled: Bool = true
+    var knownValues: Bool = true
+    var secrets: Bool = true
+    var ips: Bool = true
+    var accounts: Bool = true
+    var hosts: Bool = false
+    var emails: Bool = false
+    var custom: Bool = true
+}
+
+/// One value the guard replaced or restored.
+struct AIPrivacyReplacement: Decodable, Identifiable, Equatable {
+    var category: String
+    var token: String
+    var value: String
+
+    var id: String { token }
+}
+
+/// One request or reply in the recent exchange log.
+struct AIPrivacyAuditEntry: Decodable, Identifiable, Equatable {
+    var id: String
+    var time: Int64
+    var direction: String
+    var runId: UInt64?
+    var sessionId: UInt32?
+    var turn: Int?
+    var preview: String?
+    var count: Int?
+    var replacements: [AIPrivacyReplacement]?
+}
+
+struct AIPrivacyInfo: Codable, Equatable {
+    var settings: AIPrivacySettings = AIPrivacySettings()
+    var customStrings: [String]? = []
+}
+
+struct AIPrivacyLogResult: Decodable {
+    var entries: [AIPrivacyAuditEntry]?
+}
+
+struct AIPrivacyPreviewResult: Decodable {
+    var enabled: Bool?
+    var text: String
+    var count: Int?
+    var replacements: [AIPrivacyReplacement]?
 }
 
 struct AISendResult: Decodable {

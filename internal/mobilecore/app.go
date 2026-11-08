@@ -313,6 +313,40 @@ func (a *App) call(method string, params json.RawMessage) (any, error) {
 			a.requestSync()
 		}
 		return saved, err
+	case "ai.privacy.get":
+		return a.ai.privacyInfo()
+	case "ai.privacy.save":
+		var request struct {
+			Settings      aiPrivacySettings `json:"settings"`
+			CustomStrings []string          `json:"customStrings"`
+		}
+		if err := decodeParams(params, &request); err != nil {
+			return nil, err
+		}
+		info, err := a.ai.privacySave(request.Settings, request.CustomStrings)
+		if err == nil {
+			a.requestSync()
+		}
+		return info, err
+	case "ai.privacy.log":
+		var request struct {
+			Limit int `json:"limit"`
+		}
+		if err := decodeParams(params, &request); err != nil {
+			return nil, err
+		}
+		return map[string]any{"entries": a.ai.privacy.list(request.Limit)}, nil
+	case "ai.privacy.clear":
+		return map[string]bool{"cleared": true}, a.ai.privacy.clear()
+	case "ai.privacy.preview":
+		var request struct {
+			SessionID uint32 `json:"sessionId"`
+			Text      string `json:"text"`
+		}
+		if err := decodeParams(params, &request); err != nil {
+			return nil, err
+		}
+		return a.ai.privacyPreview(request.SessionID, request.Text)
 	case "ai.models":
 		settings := a.ai.settings.get()
 		// The user may list models before saving the form, for example right

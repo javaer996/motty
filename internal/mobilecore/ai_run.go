@@ -11,6 +11,7 @@ import (
 	"motty/internal/ai/agent"
 	"motty/internal/ai/gate"
 	"motty/internal/ai/llm"
+	"motty/internal/ai/privacy"
 	"motty/internal/ai/risk"
 	aistore "motty/internal/ai/store"
 )
@@ -79,6 +80,9 @@ type aiState struct {
 	backend  *aiBackend
 	events   *eventQueue
 	provider func(aiProvider) (llm.Provider, error)
+
+	data    *dataStore
+	privacy *aiPrivacyAudit
 }
 
 func newAIState(data *dataStore, sessions *sessionManager, events *eventQueue) *aiState {
@@ -92,6 +96,8 @@ func newAIState(data *dataStore, sessions *sessionManager, events *eventQueue) *
 		sessions: sessions,
 		backend:  &aiBackend{manager: sessions},
 		events:   events,
+		data:     data,
+		privacy:  openAIPrivacyAudit(data.dir),
 		provider: func(settings aiProvider) (llm.Provider, error) {
 			return settings.provider()
 		},
@@ -104,7 +110,8 @@ func (s *aiState) send(sessionID uint32, userText string) (uint64, error) {
 	if userText == "" {
 		return 0, errorf(CodeBadRequest, "a message is required")
 	}
-	settings, ok := s.settings.get().current()
+	config := s.settings.get()
+	settings, ok := config.current()
 	if !ok {
 		return 0, errorf(CodeBadRequest, "configure an assistant provider first")
 	}
@@ -118,6 +125,15 @@ func (s *aiState) send(sessionID uint32, userText string) (uint64, error) {
 	provider, err := s.provider(settings)
 	if err != nil {
 		return 0, err
+	}
+	// Build the guard before anything is sent or recorded: if the saved
+	// secrets cannot be read, refuse the run rather than leak plain text.
+	var guard *privacy.Guard
+	if config.Privacy != nil && config.Privacy.Enabled {
+		guard, err = s.privacyGuard(*config.Privacy, session.host)
+		if err != nil {
+			return 0, err
+		}
 	}
 	target := gate.SessionInfo{
 		ID:      strconv.FormatUint(uint64(sessionID), 10),
@@ -141,6 +157,15 @@ func (s *aiState) send(sessionID uint32, userText string) (uint64, error) {
 	run.id = s.nextRun
 	s.runs[run.id] = run
 	s.mu.Unlock()
+	if guard != nil {
+		provider = &aiPrivacyProvider{
+			inner:     provider,
+			guard:     guard,
+			audit:     s.privacy,
+			runID:     run.id,
+			sessionID: sessionID,
+		}
+	}
 	history := s.historyFor(run.hostID)
 
 	s.events.push("ai.state", map[string]any{

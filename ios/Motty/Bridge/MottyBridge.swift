@@ -72,6 +72,7 @@ final class MottyBridge: ObservableObject, @unchecked Sendable {
         refreshHosts()
         refreshKeys()
         refreshAISettings()
+        refreshAIPrivacy()
         refreshSyncStatus { _ in self.syncOnForeground() }
     }
 
@@ -266,6 +267,7 @@ final class MottyBridge: ObservableObject, @unchecked Sendable {
 
     @Published private(set) var aiSettings = AISettings()
     @Published private(set) var aiConversations: [UInt32: AIConversation] = [:]
+    @Published private(set) var aiPrivacy = AIPrivacyInfo()
 
     func aiConversation(_ sessionID: UInt32) -> AIConversation {
         aiConversations[sessionID] ?? AIConversation()
@@ -293,6 +295,94 @@ final class MottyBridge: ObservableObject, @unchecked Sendable {
             } catch {
                 self.publish(error)
                 DispatchQueue.main.async { completion?(.failure(error)) }
+            }
+        }
+    }
+
+    func refreshAIPrivacy(completion: ((AIPrivacyInfo) -> Void)? = nil) {
+        queue.async {
+            do {
+                let info: AIPrivacyInfo = try self.callSync("ai.privacy.get", params: EmptyParams())
+                DispatchQueue.main.async {
+                    self.aiPrivacy = info
+                    completion?(info)
+                }
+            } catch {
+                self.publish(error)
+            }
+        }
+    }
+
+    func saveAIPrivacy(_ settings: AIPrivacySettings, customStrings: [String]) {
+        struct Params: Encodable {
+            let settings: AIPrivacySettings
+            let customStrings: [String]
+        }
+        queue.async {
+            do {
+                let info: AIPrivacyInfo = try self.callSync(
+                    "ai.privacy.save",
+                    params: Params(settings: settings, customStrings: customStrings)
+                )
+                DispatchQueue.main.async {
+                    self.aiPrivacy = info
+                    self.aiSettings.privacy = info.settings
+                }
+            } catch {
+                self.publish(error)
+            }
+        }
+    }
+
+    func loadAIPrivacyLog(
+        limit: Int = 10,
+        completion: @escaping (Result<[AIPrivacyAuditEntry], Error>) -> Void
+    ) {
+        struct Params: Encodable { let limit: Int }
+        queue.async {
+            do {
+                let result: AIPrivacyLogResult = try self.callSync(
+                    "ai.privacy.log",
+                    params: Params(limit: limit)
+                )
+                DispatchQueue.main.async { completion(.success(result.entries ?? [])) }
+            } catch {
+                DispatchQueue.main.async { completion(.failure(error)) }
+            }
+        }
+    }
+
+    func clearAIPrivacyLog(completion: (() -> Void)? = nil) {
+        queue.async {
+            do {
+                let _: OKResult = try self.callSync("ai.privacy.clear", params: EmptyParams())
+                DispatchQueue.main.async { completion?() }
+            } catch {
+                self.publish(error)
+            }
+        }
+    }
+
+    /// Runs the current rules on a draft without sending it, so the user can
+    /// see exactly which values the assistant will not receive.
+    func previewAIPrivacy(
+        sessionID: UInt32?,
+        text: String,
+        completion: @escaping (Result<AIPrivacyPreviewResult, Error>) -> Void
+    ) {
+        struct Params: Encodable {
+            let sessionId: UInt32?
+            let text: String
+        }
+        queue.async {
+            do {
+                let result: AIPrivacyPreviewResult = try self.callSync(
+                    "ai.privacy.preview",
+                    params: Params(sessionId: sessionID, text: text)
+                )
+                DispatchQueue.main.async { completion(.success(result)) }
+            } catch {
+                DispatchQueue.main.async { completion(.failure(error)) }
             }
         }
     }

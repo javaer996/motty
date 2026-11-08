@@ -41,8 +41,9 @@ type aiProvider struct {
 // builds wrote to ai.json and accepted over RPC. They are read and folded into
 // a provider on load; new saves only write the list.
 type aiSettings struct {
-	Providers []aiProvider `json:"providers"`
-	CurrentID string       `json:"currentId,omitempty"`
+	Providers []aiProvider       `json:"providers"`
+	CurrentID string             `json:"currentId,omitempty"`
+	Privacy   *aiPrivacySettings `json:"privacy,omitempty"`
 
 	Provider    string   `json:"provider,omitempty"`
 	BaseURL     string   `json:"baseUrl,omitempty"`
@@ -59,9 +60,39 @@ type aiSettings struct {
 // It has no model, so the assistant stays "not configured" until the user
 // picks one.
 func defaultAISettings() aiSettings {
+	privacy := defaultAIPrivacySettings()
 	return aiSettings{
 		Providers: []aiProvider{{ID: "openai", Provider: "openai", Mode: "agent"}},
 		CurrentID: "openai",
+		Privacy:   &privacy,
+	}
+}
+
+// aiPrivacySettings selects what the assistant hides before a message leaves
+// the device. Passwords, keys, addresses, account names, saved secrets and the
+// current host are on by default; host names and e-mail addresses are opt-in
+// because they are often the subject of the question.
+type aiPrivacySettings struct {
+	Enabled     bool `json:"enabled"`
+	KnownValues bool `json:"knownValues"`
+	Secrets     bool `json:"secrets"`
+	IPs         bool `json:"ips"`
+	Accounts    bool `json:"accounts"`
+	Hosts       bool `json:"hosts"`
+	Emails      bool `json:"emails"`
+	Custom      bool `json:"custom"`
+}
+
+// defaultAIPrivacySettings is the protection a user gets without visiting the
+// privacy screen.
+func defaultAIPrivacySettings() aiPrivacySettings {
+	return aiPrivacySettings{
+		Enabled:     true,
+		KnownValues: true,
+		Secrets:     true,
+		IPs:         true,
+		Accounts:    true,
+		Custom:      true,
 	}
 }
 
@@ -113,7 +144,13 @@ func (s aiSettings) normalized() (aiSettings, error) {
 			current = providers[0].ID
 		}
 	}
-	return aiSettings{Providers: providers, CurrentID: current}, nil
+	// A file written before this setting existed gets the protective default;
+	// once saved, the user's explicit choices - including "all off" - are kept.
+	privacy := defaultAIPrivacySettings()
+	if s.Privacy != nil {
+		privacy = *s.Privacy
+	}
+	return aiSettings{Providers: providers, CurrentID: current, Privacy: &privacy}, nil
 }
 
 // current returns the provider the assistant should use.
@@ -266,10 +303,45 @@ func (s *aiSettingsStore) get() aiSettings {
 	defer s.mu.Unlock()
 	settings := s.current
 	settings.Providers = append([]aiProvider(nil), s.current.Providers...)
+	if s.current.Privacy != nil {
+		privacy := *s.current.Privacy
+		settings.Privacy = &privacy
+	}
 	return settings
 }
 
+// privacy returns the protection settings, including defaults for a file that
+// predates them.
+func (s *aiSettingsStore) privacy() aiPrivacySettings {
+	settings := s.get()
+	if settings.Privacy == nil {
+		return defaultAIPrivacySettings()
+	}
+	return *settings.Privacy
+}
+
+// savePrivacy replaces only the protection section, leaving providers and keys
+// alone: the privacy screen must never be able to drop an API key.
+func (s *aiSettingsStore) savePrivacy(privacy aiPrivacySettings) (aiPrivacySettings, error) {
+	current := s.get()
+	current.Privacy = &privacy
+	saved, err := s.save(current)
+	if err != nil {
+		return aiPrivacySettings{}, err
+	}
+	if saved.Privacy == nil {
+		return defaultAIPrivacySettings(), nil
+	}
+	return *saved.Privacy, nil
+}
+
 func (s *aiSettingsStore) save(settings aiSettings) (aiSettings, error) {
+	// An older front end saving provider settings does not send the privacy
+	// section; keep what the user configured instead of resetting it.
+	if settings.Privacy == nil {
+		current := s.privacy()
+		settings.Privacy = &current
+	}
 	normalized, err := settings.normalized()
 	if err != nil {
 		return aiSettings{}, err

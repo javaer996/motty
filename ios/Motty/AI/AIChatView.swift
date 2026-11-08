@@ -8,6 +8,7 @@ struct AIChatView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var input = ""
     @State private var showingSettings = false
+    @State private var showingPrivacy = false
     @State private var showingHistory = false
     @State private var confirmText = ""
 
@@ -106,7 +107,11 @@ struct AIChatView: View {
             .navigationTitle("Assistant")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
+                ToolbarItemGroup(placement: .topBarLeading) {
+                    Button { showingPrivacy = true } label: {
+                        Image(systemName: "hand.raised.fill")
+                    }
+                    .accessibilityLabel(Text("Privacy protection"))
                     Button { showingSettings = true } label: {
                         Image(systemName: "gearshape")
                     }
@@ -135,6 +140,12 @@ struct AIChatView: View {
             .sheet(isPresented: $showingSettings) {
                 AISettingsView()
                     .environmentObject(bridge)
+            }
+            .sheet(isPresented: $showingPrivacy) {
+                NavigationStack {
+                    AIPrivacyView(sessionID: sessionID)
+                        .environmentObject(bridge)
+                }
             }
             .sheet(isPresented: $showingHistory) {
                 AIHistoryView(sessionID: sessionID)

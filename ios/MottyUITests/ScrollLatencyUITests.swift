@@ -304,6 +304,78 @@ final class ScrollLatencyUITests: XCTestCase {
                       "the saved provider is not shown in Settings")
     }
 
+    /// The privacy screen crosses the bridge three ways: the switch is saved,
+    /// custom words live in the vault, and the dry run tokenizes a draft in
+    /// the Go core. Reopening the screen proves the saved state came back.
+    func testAssistantPrivacyRoundTrip() throws {
+        let app = XCUIApplication()
+        let environment = ProcessInfo.processInfo.environment
+        app.launchArguments = [
+            "-MottyUITestSeed", "motty-ui-fixture",
+            environment["MOTTY_UI_TEST_HOST"] ?? "127.0.0.1",
+            environment["MOTTY_UI_TEST_PORT"] ?? "2222",
+            "me", "secret",
+        ]
+        app.launch()
+
+        app.buttons["settings"].tap()
+        let assistant = app.buttons["settings.assistant"]
+        XCTAssertTrue(assistant.waitForExistence(timeout: 10), "the assistant row is missing")
+        assistant.tap()
+
+        let privacy = app.buttons["ai.privacy"]
+        XCTAssertTrue(privacy.waitForExistence(timeout: 10), "the privacy row is missing")
+        privacy.tap()
+
+        let toggle = app.switches["ai.privacy.enabled"]
+        XCTAssertTrue(toggle.waitForExistence(timeout: 10), "the privacy screen did not appear")
+        XCTAssertEqual(toggle.value as? String, "1", "protection is off by default")
+        // The accessibility frame is the whole Form row; only the control at
+        // the trailing edge flips the switch when tapped.
+        toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap()
+        let off = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "value == %@", "0"),
+            object: toggle
+        )
+        wait(for: [off], timeout: 5)
+        toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap()
+        let on = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "value == %@", "1"),
+            object: toggle
+        )
+        wait(for: [on], timeout: 5)
+
+        let wordField = app.textFields["ai.privacy.word"]
+        XCTAssertTrue(wordField.waitForExistence(timeout: 10), "custom word field is missing")
+        wordField.tap()
+        wordField.typeText("Acme Internal")
+        app.buttons["ai.privacy.add"].tap()
+        XCTAssertTrue(app.staticTexts["Acme Internal"].waitForExistence(timeout: 10),
+                      "the custom word was not added")
+
+        // The row was written to the vault through Go. Leave and come back:
+        // only a successful round trip can show it again.
+        app.buttons["ai.privacy.done"].tap()
+        let reopened = app.buttons["ai.privacy"]
+        XCTAssertTrue(reopened.waitForExistence(timeout: 10))
+        reopened.tap()
+        XCTAssertTrue(app.staticTexts["Acme Internal"].waitForExistence(timeout: 10),
+                      "the custom word did not survive reopening")
+
+        let draft = app.textViews["ai.privacy.draft"]
+        XCTAssertTrue(draft.waitForExistence(timeout: 10), "the draft editor is missing")
+        draft.tap()
+        draft.typeText("ssh alice@192.168.1.20")
+        let preview = app.buttons["ai.privacy.preview"]
+        XCTAssertTrue(preview.waitForExistence(timeout: 10))
+        preview.tap()
+        XCTAssertTrue(app.staticTexts["ai.privacy.preview.result"].waitForExistence(timeout: 10),
+                      "the dry run produced no result")
+        XCTAssertTrue(app.staticTexts["ai.privacy.preview.replacement"].firstMatch
+                        .waitForExistence(timeout: 10),
+                      "the dry run reported no replacements")
+    }
+
     /// Backgrounds the app for longer than the SSH keepalive interval. The
     /// silent-audio keepalive has to keep the process (and the socket) alive;
     /// if iOS suspends it, the session is gone when the app comes back.

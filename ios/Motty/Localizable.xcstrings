@@ -81,6 +81,22 @@
         }
       }
     },
+    "%ld replaced": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "替换 %ld 处"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "替換 %ld 處"
+          }
+        }
+      }
+    },
     "%lld sessions · %lld favorites · %@": {
       "localizations": {
         "zh-Hans": {
@@ -321,6 +337,22 @@
         }
       }
     },
+    "Accounts and home folders": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "账号与家目录"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "帳號與家目錄"
+          }
+        }
+      }
+    },
     "Active": {
       "localizations": {
         "zh-Hans": {
@@ -349,6 +381,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "目前供應商"
+          }
+        }
+      }
+    },
+    "Add": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增"
           }
         }
       }
@@ -977,6 +1025,22 @@
         }
       }
     },
+    "Certificate": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "证书"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "憑證"
+          }
+        }
+      }
+    },
     "Check the certificate": {
       "localizations": {
         "zh-Hans": {
@@ -1101,6 +1165,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "清除歷史"
+          }
+        }
+      }
+    },
+    "Clear log": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清空记录"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清除記錄"
           }
         }
       }
@@ -1905,6 +1985,38 @@
         }
       }
     },
+    "Custom": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自定义"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自訂"
+          }
+        }
+      }
+    },
+    "Custom words": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自定义内容"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自訂內容"
+          }
+        }
+      }
+    },
     "Delete": {
       "localizations": {
         "zh-Hans": {
@@ -1949,6 +2061,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "目標位址 host:port"
+          }
+        }
+      }
+    },
+    "Detected automatically": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动识别"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動辨識"
           }
         }
       }
@@ -2077,6 +2205,38 @@
           "stringUnit": {
             "state": "translated",
             "value": "持續時間"
+          }
+        }
+      }
+    },
+    "E-mail": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "邮箱"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "電子郵件"
+          }
+        }
+      }
+    },
+    "E-mail addresses": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "邮箱地址"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "電子郵件地址"
           }
         }
       }
@@ -2673,6 +2833,22 @@
         }
       }
     },
+    "Hiding host names can make answers less useful.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隐藏主机名可能降低回答的实用性。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隱藏主機名稱可能降低回答的實用性。"
+          }
+        }
+      }
+    },
     "High": {
       "localizations": {
         "zh-Hans": {
@@ -2769,6 +2945,22 @@
         }
       }
     },
+    "Host names": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主机名"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主機名稱"
+          }
+        }
+      }
+    },
     "Host or IP": {
       "localizations": {
         "zh-Hans": {
@@ -2781,6 +2973,38 @@
           "stringUnit": {
             "state": "translated",
             "value": "主機或 IP"
+          }
+        }
+      }
+    },
+    "IP": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IP"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IP"
+          }
+        }
+      }
+    },
+    "IP addresses": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IP 地址"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IP 位址"
           }
         }
       }
@@ -3377,6 +3601,22 @@
         }
       }
     },
+    "Message preview": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "消息预览"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "訊息預覽"
+          }
+        }
+      }
+    },
     "Message the assistant": {
       "localizations": {
         "zh-Hans": {
@@ -3389,6 +3629,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "給助手發訊息"
+          }
+        }
+      }
+    },
+    "Messages are replaced with reversible tokens before they leave the device. The assistant's reply is restored here.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "消息在离开设备前会被替换为可还原的标记，助手的回复会在本机还原。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "訊息在離開裝置前會被替換為可還原的標記，助手的回覆會在本機還原。"
           }
         }
       }
@@ -3649,6 +3905,22 @@
         }
       }
     },
+    "No custom words yet.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚未添加自定义内容。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚未新增自訂內容。"
+          }
+        }
+      }
+    },
     "No events were recorded.": {
       "localizations": {
         "zh-Hans": {
@@ -3661,6 +3933,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "沒有記錄到事件。"
+          }
+        }
+      }
+    },
+    "No exchanges recorded yet.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚无加解密记录。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚無加解密記錄。"
           }
         }
       }
@@ -3841,6 +4129,22 @@
         }
       }
     },
+    "Nothing was replaced.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有需要替换的内容。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有需要替換的內容。"
+          }
+        }
+      }
+    },
     "OK": {
       "localizations": {
         "zh-Hans": {
@@ -3885,6 +4189,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "只有在你清楚伺服器憑證為何更改時，才繼續。"
+          }
+        }
+      }
+    },
+    "Only the newest 10 exchanges are shown. Passwords and keys stay masked here too.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅显示最近 10 条记录；密码和密钥在这里也会打码。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "僅顯示最近 10 筆記錄；密碼和密鑰在這裡也會遮蔽。"
           }
         }
       }
@@ -4145,6 +4465,22 @@
         }
       }
     },
+    "Password or token": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "密码或令牌"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "密碼或令牌"
+          }
+        }
+      }
+    },
     "Password required": {
       "localizations": {
         "zh-Hans": {
@@ -4173,6 +4509,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "密碼"
+          }
+        }
+      }
+    },
+    "Passwords, keys and certificates": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "密码、密钥与证书"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "密碼、密鑰與憑證"
           }
         }
       }
@@ -4337,6 +4689,22 @@
         }
       }
     },
+    "Preview": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "试运行"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "試運行"
+          }
+        }
+      }
+    },
     "Previously trusted: %@": {
       "localizations": {
         "zh-Hans": {
@@ -4349,6 +4717,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "之前信任過：%@"
+          }
+        }
+      }
+    },
+    "Privacy protection": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隐私保护"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隱私保護"
           }
         }
       }
@@ -4413,6 +4797,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "處理程序重新啟動"
+          }
+        }
+      }
+    },
+    "Protect messages": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保护消息"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保護訊息"
           }
         }
       }
@@ -4637,6 +5037,38 @@
           "stringUnit": {
             "state": "translated",
             "value": "原因"
+          }
+        }
+      }
+    },
+    "Received": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "回复"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "回覆"
+          }
+        }
+      }
+    },
+    "Recent exchanges": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最近记录"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最近記錄"
           }
         }
       }
@@ -5025,6 +5457,22 @@
         }
       }
     },
+    "Replaced values": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "替换详情"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "替換詳情"
+          }
+        }
+      }
+    },
     "Replying…": {
       "localizations": {
         "zh-Hans": {
@@ -5197,6 +5645,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "重試"
+          }
+        }
+      }
+    },
+    "Reversible tokens hide saved secrets, addresses and account names before they are sent.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "发送前用可还原的标记隐藏已保存的密钥、地址与账号名。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "傳送前用可還原的標記隱藏已儲存的密鑰、位址與帳號名稱。"
           }
         }
       }
@@ -5457,6 +5921,22 @@
         }
       }
     },
+    "Saved secrets and the current host": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已保存的密钥与当前主机"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已儲存的密鑰與目前主機"
+          }
+        }
+      }
+    },
     "Saving…": {
       "localizations": {
         "zh-Hans": {
@@ -5569,6 +6049,22 @@
         }
       }
     },
+    "See what the assistant receives": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "查看助手将收到什么"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "查看助手將收到什麼"
+          }
+        }
+      }
+    },
     "Send": {
       "localizations": {
         "zh-Hans": {
@@ -5585,6 +6081,22 @@
         }
       }
     },
+    "Send a draft to see what the assistant would receive.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "发送一条草稿，查看助手会收到什么。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "傳送一條草稿，查看助手會收到什麼。"
+          }
+        }
+      }
+    },
     "Send to the remote": {
       "localizations": {
         "zh-Hans": {
@@ -5597,6 +6109,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "傳送到遠端"
+          }
+        }
+      }
+    },
+    "Sent": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "发送"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "傳送"
           }
         }
       }
@@ -6337,6 +6865,22 @@
         }
       }
     },
+    "The assistant will receive": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "助手将收到"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "助手將收到"
+          }
+        }
+      }
+    },
     "The certificate changed": {
       "localizations": {
         "zh-Hans": {
@@ -6541,6 +7085,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "伺服器上只儲存一個加密檔案。使用下方的備份密碼加密；桌面版 Motty 可以讀取同一個檔案。"
+          }
+        }
+      }
+    },
+    "These words are stored with your saved secrets and sync with them.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这些内容与已保存的密钥一起存储并同步。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這些內容與已儲存的密鑰一起儲存並同步。"
           }
         }
       }
@@ -7181,6 +7741,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "WebDAV"
+          }
+        }
+      }
+    },
+    "Word or path to hide": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要隐藏的词或路径"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要隱藏的字或路徑"
           }
         }
       }

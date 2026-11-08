@@ -78,6 +78,17 @@ struct AISettingsView: View {
                 }
 
                 Section {
+                    NavigationLink {
+                        AIPrivacyView()
+                    } label: {
+                        Label("Privacy protection", systemImage: "hand.raised.fill")
+                    }
+                    .accessibilityIdentifier("ai.privacy")
+                } footer: {
+                    Text("Reversible tokens hide saved secrets, addresses and account names before they are sent.")
+                }
+
+                Section {
                     Text("Commands rated low risk (reads, listings) run automatically. Anything that changes the host asks you first; critical commands require typing CONFIRM.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)

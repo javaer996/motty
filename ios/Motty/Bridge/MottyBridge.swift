@@ -1551,18 +1551,20 @@ final class MottyBridge: ObservableObject, @unchecked Sendable {
     struct CompletionParams: Encodable {
         let sessionId: UInt32
         let line: String?
+        let typed: String?
         let locale: String?
     }
 
     func complete(
         sessionID: UInt32,
         line: String? = nil,
+        typed: String? = nil,
         locale: String? = nil,
         completion: @escaping (Result<CompletionResult, Error>) -> Void
     ) {
         callOnMain(
             "completion.complete",
-            params: CompletionParams(sessionId: sessionID, line: line, locale: locale)
+            params: CompletionParams(sessionId: sessionID, line: line, typed: typed, locale: locale)
         ) { (result: Result<CompletionResult, Error>) in
             completion(result)
         }

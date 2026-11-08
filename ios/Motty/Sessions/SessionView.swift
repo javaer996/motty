@@ -6,7 +6,6 @@ struct SessionView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var showingAssistant = false
     @State private var showingFiles = false
-    @State private var showingCompletion = false
 
     private var session: SessionInfo? {
         bridge.sessions.first { $0.id == sessionID }
@@ -50,12 +49,6 @@ struct SessionView: View {
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button { showingCompletion = true } label: {
-                        Image(systemName: "lightbulb")
-                    }
-                    .disabled(session?.isConnected != true)
-                }
-                ToolbarItem(placement: .topBarTrailing) {
                     Button { showingFiles = true } label: {
                         Image(systemName: "folder")
                     }
@@ -85,10 +78,6 @@ struct SessionView: View {
         }
         .sheet(isPresented: $showingFiles) {
             SFTPBrowserView(sessionID: sessionID)
-                .environmentObject(bridge)
-        }
-        .sheet(isPresented: $showingCompletion) {
-            CompletionView(sessionID: sessionID)
                 .environmentObject(bridge)
         }
     }

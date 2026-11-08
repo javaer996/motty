@@ -132,7 +132,10 @@ final class SuggestionBarView: UIView {
             stack.removeArrangedSubview(view)
             view.removeFromSuperview()
         }
-        for (index, candidate) in candidates.prefix(8).enumerated() {
+        // Every match the core returns is rendered; the row scrolls
+        // horizontally, so a broad prefix can show the whole list instead of
+        // stopping at the first screenful.
+        for (index, candidate) in candidates.enumerated() {
             let button = makeChip(candidate)
             button.tag = index
             button.accessibilityIdentifier = "suggestion.\(index)"
@@ -188,11 +191,12 @@ final class SuggestionBarView: UIView {
         return button
     }
 
-    /// What the chip promises to type: the suffix itself, without the leading
-    /// space the terminal needs.
+    /// What the chip shows: the complete candidate, not just the part that
+    /// will be typed. A prefix like "ne" shows "netstat"; tapping it still
+    /// inserts only "tstat".
     private func chipTitle(_ candidate: CompletionCandidate) -> String {
-        let insert = candidate.insert.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !insert.isEmpty { return insert }
-        return candidate.text
+        let text = candidate.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !text.isEmpty { return text }
+        return candidate.insert.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

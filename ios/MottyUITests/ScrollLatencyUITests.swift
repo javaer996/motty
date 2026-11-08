@@ -118,8 +118,8 @@ final class ScrollLatencyUITests: XCTestCase {
         let chip = app.buttons["suggestion.0"]
         XCTAssertTrue(chip.waitForExistence(timeout: 10), "no inline suggestion appeared")
         XCTAssertTrue(
-            chip.label.contains("atus -sb"),
-            "the first suggestion was not the git status combination: \(chip.label)"
+            chip.label.contains("git status -sb"),
+            "the first suggestion did not show the full combination: \(chip.label)"
         )
 
         // A plain tap makes XCUITest scroll the chip into view first, which
@@ -161,17 +161,60 @@ final class ScrollLatencyUITests: XCTestCase {
 
         let chip = app.buttons["suggestion.0"]
         XCTAssertTrue(chip.waitForExistence(timeout: 10), "no netstat option appeared")
-        // The chip shows only the suffix that will be inserted after the typed
-        // dash. The table is ordered by usefulness: a (all) comes first, then
-        // t (TCP).
+        // The chip shows the complete option while the dash stays typed. The
+        // table is ordered by usefulness: a (all) comes first, then t (TCP).
         XCTAssertTrue(
-            chip.label.hasPrefix("a. "),
+            chip.label.hasPrefix("-a"),
             "the first netstat option was not -a: \(chip.label)"
         )
         XCTAssertTrue(
-            app.buttons["suggestion.1"].label.hasPrefix("t. "),
+            app.buttons["suggestion.1"].label.hasPrefix("-t"),
             "the second netstat option was not -t: \(app.buttons["suggestion.1"].label)"
         )
+    }
+
+    /// An unfinished command word lists every match, not just the first
+    /// screenful; the row scrolls. "c" matches far more than eight commands.
+    func testCompletionListsEveryMatchingCommand() throws {
+        let (app, _) = try connect(autoType: "")
+
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
+        app.typeText("c")
+
+        XCTAssertTrue(app.buttons["suggestion.7"].waitForExistence(timeout: 10),
+                      "the suggestion row stopped before the first screenful")
+        XCTAssertTrue(app.buttons["suggestion.8"].waitForExistence(timeout: 10),
+                      "the suggestion row stopped at eight chips")
+    }
+
+    /// Without a space the word is still unfinished: "ls" lists "lsof",
+    /// "lsblk" and the other longer commands. Once the space is typed, the
+    /// common combinations take over.
+    func testCompletionListsLongerCommandsUntilTheSpace() throws {
+        let (app, _) = try connect(autoType: "")
+
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
+        app.typeText("ls")
+
+        // The chips show complete command names, so lsof is visible even
+        // though only "of" would be typed when it is picked.
+        let lsof = app.buttons.matching(
+            NSPredicate(format: "label BEGINSWITH %@", "lsof")
+        ).firstMatch
+        XCTAssertTrue(lsof.waitForExistence(timeout: 10),
+                      "ls did not offer lsof")
+        let lsblk = app.buttons.matching(
+            NSPredicate(format: "label BEGINSWITH %@", "lsblk")
+        ).firstMatch
+        XCTAssertTrue(lsblk.waitForExistence(timeout: 10),
+                      "ls did not offer lsblk")
+
+        app.typeText(" ")
+        let combo = app.buttons["suggestion.0"]
+        XCTAssertTrue(combo.waitForExistence(timeout: 10),
+                      "no ls combination appeared after the space")
+        XCTAssertTrue(combo.label.hasPrefix("ls -lah"),
+                      "the first ls combination was not ls -lah: \(combo.label)")
     }
 
     /// Several assistant providers can be configured and the active one

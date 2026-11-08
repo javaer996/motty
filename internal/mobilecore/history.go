@@ -145,6 +145,19 @@ func (s *session) currentLine() string {
 	return line
 }
 
+// atCommandLine reports whether the terminal is on a plain shell command
+// line. It is the gate for a line tracked on the client: the screen no longer
+// has to echo the line first, but a password prompt or a full-screen program
+// still gets no suggestions.
+func (s *session) atCommandLine() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.terminal == nil {
+		return false
+	}
+	return s.recorder.CommandLine(cmdhistory.TermScreen{Term: s.terminal})
+}
+
 // How many history rows to offer. On an empty prompt the recent commands are
 // the whole answer; after typing a prefix a handful of matches is enough.
 const (
@@ -209,6 +222,51 @@ func (a *App) candidates(host, line, locale string) ([]completionCandidateJSON, 
 		}
 		return added
 	}
+	// historyCommands only completes the first word of remembered commands.
+	// While the command itself is still being typed, arguments must not be
+	// inserted.
+	historyCommands := func(entries []cmdhistory.Entry, limit int) int {
+		added := 0
+		for _, rest := range cmdhistory.SuggestCommands(entries, line, limit) {
+			if add(completion.Candidate{
+				Text:   line + rest,
+				Insert: rest,
+				Desc:   "From your history",
+				Kind:   completion.KindCommand,
+			}) {
+				added++
+			}
+		}
+		return added
+	}
+	// addCatalogs merges the imported snapshot and the hand-written
+	// essentials. It reports whether the line is syntax the snapshot does not
+	// understand.
+	addCatalogs := func() bool {
+		catalog := a.history.builtin()
+		if catalog == nil {
+			return false
+		}
+		result := completion.Complete(catalog, line)
+		if result.Suppressed {
+			return true
+		}
+		for _, candidate := range result.Candidates {
+			add(candidate)
+		}
+		// Essentials covers commands the imported snapshot lacks: net-tools,
+		// iproute2, packet capture, database clients and the POSIX shell
+		// builtins.
+		if essentials := completion.Essentials(); essentials != nil {
+			extra := completion.Complete(essentials, line)
+			if !extra.Suppressed {
+				for _, candidate := range extra.Candidates {
+					add(candidate)
+				}
+			}
+		}
+		return false
+	}
 
 	if line == "" {
 		// The alphabetical catalog root list is noise on an empty prompt; the
@@ -218,38 +276,42 @@ func (a *App) candidates(host, line, locale string) ([]completionCandidateJSON, 
 		}
 		return out, false
 	}
+
+	// Until the first space the line is still the command word, even when it
+	// happens to name a complete command: "ls" may still become "lsof" or
+	// "lsblk". Only command names belong here; parameters and combinations
+	// wait for the space.
+	if !strings.ContainsAny(line, " \t") {
+		if !cmdhistory.Secret(line) {
+			// An unfinished command word is a lookup: every remembered command
+			// that matches belongs in the list, not just the top few.
+			if historyCommands(a.history.entries(host), completion.MaxCandidates) == 0 {
+				historyCommands(a.history.entries(""), completion.MaxCandidates)
+			}
+		}
+		return out, addCatalogs()
+	}
+
 	if !cmdhistory.Secret(line) {
 		if history(a.history.entries(host), historyLineLimit) == 0 {
 			history(a.history.entries(""), historyLineLimit)
 		}
 	}
 
-	// The curated combinations answer "what do people usually type here".
-	for _, candidate := range completion.Combos(line, completion.MaxCandidates) {
-		add(candidate)
+	// The curated combinations answer "what do people usually type here" and
+	// carry an explanation. A bare "-" or "--" is an explicit request for the
+	// option table, so combinations step aside and the catalog answers; once
+	// an option name has characters, both are useful.
+	lastWord := line
+	if index := strings.LastIndexByte(line, ' '); index >= 0 {
+		lastWord = line[index+1:]
 	}
-	suppressed := false
-	if catalog := a.history.builtin(); catalog != nil {
-		result := completion.Complete(catalog, line)
-		suppressed = result.Suppressed
-		if !result.Suppressed {
-			for _, candidate := range result.Candidates {
-				add(candidate)
-			}
-			// Essentials covers commands the imported snapshot lacks:
-			// net-tools, iproute2, packet capture, database clients and the
-			// POSIX shell builtins.
-			if essentials := completion.Essentials(); essentials != nil {
-				extra := completion.Complete(essentials, line)
-				if !extra.Suppressed {
-					for _, candidate := range extra.Candidates {
-						add(candidate)
-					}
-				}
-			}
+	if lastWord != "-" && lastWord != "--" {
+		for _, candidate := range completion.Combos(line, completion.MaxCandidates) {
+			add(candidate)
 		}
 	}
-	return out, suppressed
+	return out, addCatalogs()
 }
 
 func (a *App) callHistory(method string, params json.RawMessage) (bool, any, error) {
@@ -324,6 +386,7 @@ func (a *App) callHistory(method string, params json.RawMessage) (bool, any, err
 		var request struct {
 			SessionID uint32 `json:"sessionId"`
 			Line      string `json:"line"`
+			Typed     string `json:"typed"`
 			Locale    string `json:"locale"`
 		}
 		if err := decodeParams(params, &request); err != nil {
@@ -335,7 +398,12 @@ func (a *App) callHistory(method string, params json.RawMessage) (bool, any, err
 		}
 		line := request.Line
 		derived := false
-		if line == "" {
+		if line == "" && request.Typed != "" && target.atCommandLine() {
+			// The client follows the line as it is typed. Using it directly
+			// makes suggestions immediate on a slow link and works with shells
+			// whose autosuggestion text perturbs the screen.
+			line = request.Typed
+		} else if line == "" {
 			line = target.currentLine()
 			derived = true
 		}

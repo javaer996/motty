@@ -41,6 +41,33 @@ func TestCombosContinueTheTypedLineWithoutRewritingIt(t *testing.T) {
 	}
 }
 
+// The commands people inspect a server with get a short list of combinations,
+// each with an explanation, instead of their whole option table.
+func TestCombosCoverCommonNetworkAndProcessCommands(t *testing.T) {
+	cases := []struct {
+		line string
+		want string
+	}{
+		{"netstat ", "netstat -tulnp"},
+		{"ss ", "ss -tulnp"},
+		{"lsof ", "lsof -i"},
+		{"tcpdump ", "tcpdump -i any -nn"},
+		{"ip ", "ip -br a"},
+		{"ps ", "ps aux"},
+	}
+	for _, test := range cases {
+		candidates := Combos(test.line, maxCombos)
+		if len(candidates) == 0 || candidates[0].Text != test.want {
+			t.Fatalf("%q first combination = %+v, want %q", test.line, candidates, test.want)
+		}
+		for _, candidate := range candidates {
+			if candidate.Desc == "" {
+				t.Fatalf("%q combination %q has no explanation", test.line, candidate.Text)
+			}
+		}
+	}
+}
+
 func TestCombosStayOutOfTheWay(t *testing.T) {
 	if got := Combos("", maxCombos); got != nil {
 		t.Fatalf("an empty line produced %d combinations", len(got))

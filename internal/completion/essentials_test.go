@@ -68,16 +68,21 @@ func TestEssentialsOfferCommonOptions(t *testing.T) {
 
 	// A cluster that has already been typed must not make the rest of the line
 	// unsupported; -tuln is how ss is actually used.
-	result = Complete(catalog, "ss -tulnp ")
+	result = Complete(catalog, "ss -tulnp -")
 	if result.Suppressed {
 		t.Fatal("a short-option cluster suppressed the line")
 	}
-	if !hasCandidateText(result, "--all") {
+	if !hasCandidateText(result, "-a") {
 		t.Fatalf("the line after a cluster has no options: %v", candidateNames(result))
+	}
+	for _, used := range []string{"-t", "-u", "-l", "-n", "-p"} {
+		if hasCandidateText(result, used) {
+			t.Fatalf("%s is already typed but offered again: %v", used, candidateNames(result))
+		}
 	}
 
 	// A multi-character option name is one option, not a cluster.
-	result = Complete(catalog, "nmap -sS ")
+	result = Complete(catalog, "nmap -sS --")
 	if result.Suppressed {
 		t.Fatal("a multi-character option suppressed the line")
 	}
@@ -107,6 +112,40 @@ func TestEssentialsOrderCommonOptionsFirst(t *testing.T) {
 			t.Fatalf("ip chip %d = %q, want %q (%v)", index, result.Candidates[index].Text, text, candidateNames(result))
 		}
 	}
+}
+
+// The default list after a command does not enumerate options; the caller
+// offers curated combinations instead. An explicit dash asks for the table,
+// short forms first, in usefulness order.
+func TestEssentialsKeepOptionsBehindAnExplicitDash(t *testing.T) {
+	catalog := Essentials()
+
+	for _, line := range []string{"lsof", "lsof ", "netstat "} {
+		if result := Complete(catalog, line); len(result.Candidates) != 0 {
+			t.Fatalf("%q offered individual options: %v", line, candidateNames(result))
+		}
+	}
+
+	result := Complete(catalog, "lsof -")
+	want := []string{"-i", "-p", "-u", "-c", "-n", "-P", "-l", "-a"}
+	for index, text := range want {
+		if index >= len(result.Candidates) || result.Candidates[index].Text != text {
+			t.Fatalf("lsof chip %d = %q, want %q (%v)", index,
+				candidateText(result, index), text, candidateNames(result))
+		}
+	}
+
+	// An option without a short form still appears with its long name.
+	if !hasCandidateText(Complete(catalog, "nmap --"), "--open") {
+		t.Fatalf("a long-only option is missing: %v", candidateNames(Complete(catalog, "nmap --")))
+	}
+}
+
+func candidateText(result Result, index int) string {
+	if index >= len(result.Candidates) {
+		return "<missing>"
+	}
+	return result.Candidates[index].Text
 }
 
 func TestEssentialsCoverShellBuiltins(t *testing.T) {

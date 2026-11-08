@@ -77,6 +77,51 @@ func (s *shell) wantNothing() {
 	}
 }
 
+// Shells draw changing autosuggestions after the cursor. They must not stop
+// completion: the client tracks the line itself, and the screen only has to
+// prove that this is a plain prompt.
+func TestCommandLineIgnoresSuggestionsAfterTheCursor(t *testing.T) {
+	s := newShell(t, 40)
+	s.prompt("$ ")
+	s.typeEchoed("lsof")
+
+	s.out("\x1b[90m -i :8080\x1b[0m")
+	// Put the cursor back at the end of what was typed; the suggestion stays
+	// to its right, as the shell would draw it.
+	s.out("\x1b[9D")
+	if _, ok := s.rec.Line(TermScreen{s.screen}); ok {
+		t.Fatal("Line unexpectedly accepted a line with a suggestion")
+	}
+	if !s.rec.CommandLine(TermScreen{s.screen}) {
+		t.Fatal("a shell suggestion hid the command line")
+	}
+
+	// The suggestion changes while typing; the screen still proves the prompt.
+	s.out("\x1b[0K")
+	s.out("\x1b[90m -i\x1b[0m")
+	s.out("\x1b[3D")
+	if !s.rec.CommandLine(TermScreen{s.screen}) {
+		t.Fatal("a changed suggestion hid the command line")
+	}
+}
+
+func TestCommandLineRejectsPasswordPromptsAndFullScreenPrograms(t *testing.T) {
+	s := newShell(t, 40)
+	s.prompt("Password: ")
+	s.typeHidden("secret")
+	if s.rec.CommandLine(TermScreen{s.screen}) {
+		t.Fatal("a password prompt reported a command line")
+	}
+
+	s = newShell(t, 40)
+	s.out("\x1b[?1049h")
+	s.rec.Reset()
+	s.typeHidden("x")
+	if s.rec.CommandLine(TermScreen{s.screen}) {
+		t.Fatal("a full-screen program reported a command line")
+	}
+}
+
 func TestACommandAtAPromptIsRecorded(t *testing.T) {
 	s := newShell(t, 80)
 	s.prompt("user@host:~$ ")

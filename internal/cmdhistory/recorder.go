@@ -289,3 +289,34 @@ func (r *Recorder) Line(screen Screen) (string, bool) {
 	}
 	return line, true
 }
+
+// CommandLine reports whether the cursor is on a plain shell command line.
+// Unlike Line it does not compare the text after the cursor: shells draw
+// changing autosuggestions there (fish, zsh-autosuggestions), and that text
+// must not make the line look unusable for completion. The caller supplies the
+// line it has been tracking locally.
+func (r *Recorder) CommandLine(screen Screen) bool {
+	if !r.armed || screen.Alt() || screen.Scrolled() {
+		return false
+	}
+	x, y := screen.Cursor()
+	first := y
+	for first > 0 && screen.Wrapped(first-1) && y-first < maxRows {
+		first--
+	}
+	if first+r.promptRows != y || x < r.promptX || screen.Wrapped(y) {
+		return false
+	}
+	prompt := screen.Span(y, 0, r.promptX, true)
+	if strings.TrimSpace(prompt) == "" {
+		return false
+	}
+	context := prompt
+	for row := first; row < y; row++ {
+		context = screen.Span(row, 0, -1, false) + " " + context
+	}
+	if first > 0 {
+		context = screen.Span(first-1, 0, -1, true) + " " + context
+	}
+	return !PasswordPrompt(context)
+}

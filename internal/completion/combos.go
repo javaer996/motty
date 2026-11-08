@@ -74,6 +74,35 @@ var combos = []combo{
 	{"kubectl rollout restart deploy/", "Restart a deployment"},
 	{"kubectl port-forward svc/ 8080:80", "Forward a service port locally"},
 
+	// network and sockets
+	{"netstat -tulnp", "Listening TCP and UDP ports with process names"},
+	{"netstat -anp", "Every connection with process names"},
+	{"netstat -rn", "The routing table"},
+	{"netstat -i", "Interface statistics"},
+	{"ss -tulnp", "Listening TCP and UDP sockets with processes"},
+	{"ss -tanp", "Every TCP socket with processes"},
+	{"ss -s", "Socket summary by state"},
+	{"ip -br a", "Interfaces on one line each"},
+	{"ip a", "Addresses and interfaces"},
+	{"ip r", "The routing table"},
+	{"ip neigh", "The neighbour (ARP) table"},
+	{"lsof -i", "Network files and their owning processes"},
+	{"lsof -i :", "The process using a port"},
+	{"lsof -p ", "Files opened by a process ID"},
+	{"lsof -u ", "Files opened by a user"},
+	{"tcpdump -i any -nn", "Capture on every interface without name lookups"},
+	{"tcpdump -i any port ", "Capture one port on every interface"},
+	{"nmap -sV ", "Service versions on common ports"},
+	{"nmap -sn ", "Live hosts, without a port scan"},
+	{"ping -c 4 ", "Four echo requests and stop"},
+	{"traceroute ", "The path packets take to a host"},
+	{"dig +short ", "A short DNS answer"},
+
+	// processes and services
+	{"ps aux", "Every process with CPU and memory"},
+	{"ps -ef", "Every process with full command lines"},
+	{"systemctl --failed", "Units that failed to start"},
+
 	// files
 	{"ls -lah", "Long listing with sizes and hidden files"},
 	{"ls -lat", "Newest files first"},

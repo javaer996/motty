@@ -33,10 +33,16 @@ final class TerminalUIView: UIView, UIKeyInput {
     private var inputBar: TerminalInputBar?
 
     /// Inline command completion: a debounced question to the core after every
-    /// keystroke. The core reads the line being edited from the terminal, so
-    /// the front end never has to keep one.
+    /// keystroke. The line is tracked here as it is typed, because reading it
+    /// back from the screen waits for the network echo and breaks with shells
+    /// that draw autosuggestions after the cursor. nil means the local copy is
+    /// not trustworthy and the core falls back to the screen.
     private var completionWork: DispatchWorkItem?
     private var completionSequence = 0
+    private var typedLine: String? = ""
+    /// Counts sends that may have changed the line; only a screen-derived
+    /// answer asked for before the latest send may resynchronise typedLine.
+    private var inputSequence = 0
     /// The line the core last read from the screen, for the DEBUG probe.
     private var lastCompletionLine = ""
 
@@ -952,8 +958,40 @@ final class TerminalUIView: UIView, UIKeyInput {
 
     private func send(_ data: Data) {
         guard !data.isEmpty else { return }
+        trackTypedLine(data)
+        inputSequence += 1
         bridge?.input(sessionID: sessionID, data: data)
         scheduleCompletion()
+    }
+
+    /// Keeps a local copy of the line being edited. Printable text is
+    /// appended, backspace removes one character, Enter starts a fresh line.
+    /// Anything that edits the line invisibly (arrows, tab completion, control
+    /// keys, escape sequences) makes the copy unknown until a screen-derived
+    /// answer resynchronises it.
+    private func trackTypedLine(_ data: Data) {
+        guard var line = typedLine, let text = String(data: data, encoding: .utf8) else {
+            typedLine = nil
+            return
+        }
+        for scalar in text.unicodeScalars {
+            switch scalar.value {
+            case 0x0D, 0x0A:
+                line = ""
+            case 0x7F, 0x08:
+                if !line.isEmpty { line.unicodeScalars.removeLast() }
+            case 0x03, 0x04, 0x09, 0x0B, 0x15, 0x17, 0x1B:
+                typedLine = nil
+                return
+            default:
+                if scalar.value < 0x20 {
+                    typedLine = nil
+                    return
+                }
+                line.unicodeScalars.append(scalar)
+            }
+        }
+        typedLine = line
     }
 
     // MARK: Inline completion
@@ -979,19 +1017,35 @@ final class TerminalUIView: UIView, UIKeyInput {
         completionSequence += 1
         let sequence = completionSequence
         let locale = AppLanguage.effectiveLocale.identifier
-        bridge.complete(sessionID: sessionID, locale: locale) { [weak self] result in
+        let typed = typedLine
+        let inputs = inputSequence
+        bridge.complete(sessionID: sessionID, typed: typed, locale: locale) { [weak self] result in
             guard let self, sequence == self.completionSequence else { return }
             switch result {
             case .success(let answer):
                 self.lastCompletionLine = answer.line
-                // The core reads the line from the screen; an empty line means
-                // this is not a plain prompt (a password, vim, a menu) and
-                // nothing may be suggested.
+                // A screen-derived answer resynchronises the local copy when
+                // the user has not typed since the question was asked.
+                if answer.derived == true, self.inputSequence == inputs,
+                   self.typedLine == nil || self.typedLine == "" {
+                    self.typedLine = answer.line
+                }
+                // An empty line means this is not a plain prompt (a password,
+                // vim, a menu) and nothing may be suggested.
                 if answer.suppressed || answer.line.isEmpty {
                     self.showSuggestions([])
                 } else {
                     self.showSuggestions(answer.candidates)
                 }
+                #if DEBUG
+                NSLog(
+                    "completion typed=%ld line=%ld candidates=%ld derived=%ld",
+                    typed?.count ?? -1,
+                    answer.line.count,
+                    answer.candidates.count,
+                    answer.derived == true ? 1 : 0
+                )
+                #endif
             case .failure:
                 self.showSuggestions([])
             }

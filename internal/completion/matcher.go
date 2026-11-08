@@ -5,9 +5,11 @@ import (
 	"unicode"
 )
 
-// MaxCandidates bounds one answer. The list shows fewer rows than this; the
-// bound exists so a broad prefix cannot build an unbounded response.
-const MaxCandidates = 100
+// MaxCandidates bounds one answer. A single letter can match close to a
+// hundred commands once the catalog, the essentials and the host's history are
+// merged, so the bound leaves room for the rest instead of cutting the list
+// mid-alphabet.
+const MaxCandidates = 200
 
 const (
 	maxLineBytes = 4096
@@ -169,8 +171,11 @@ func Complete(catalog *Catalog, line string) Result {
 		if positional {
 			return result
 		}
+		// After the command and a space, show its subcommands. Individual
+		// options are not listed here: the caller offers curated common
+		// combinations with explanations instead, and typing "-" or "--"
+		// asks for the option table explicitly.
 		addChildren(node, "", &result)
-		addLongFlags(catalog, node, "", used, &result)
 		return result
 	}
 	if strings.HasPrefix(word, "--") {

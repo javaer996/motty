@@ -2,6 +2,7 @@ package mobilecore
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"motty/internal/sshconn"
@@ -162,6 +163,116 @@ func TestCompletionFallsBackToOtherHostsHistory(t *testing.T) {
 	candidates := completeLine(t, app, 14, "", "en")
 	if len(candidates) == 0 || candidates[0].Text != "systemctl restart nginx" {
 		t.Fatalf("cross-host history = %+v", candidates)
+	}
+}
+
+// While the command word is still being typed, only the missing part of a
+// command name may be inserted. Remembered argument lines must not leak in
+// before the command is finished.
+func TestCompletionOffersOnlyCommandsUntilTheWordIsComplete(t *testing.T) {
+	app, err := Start(Config{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Close()
+	fakeSession(t, app, 16, Host{ID: "host-16", Address: "example.com"})
+	app.history.record("host-16", "lsof -i :80")
+
+	candidates := completeLine(t, app, 16, "lso", "en")
+	commandWord := false
+	for _, candidate := range candidates {
+		if strings.ContainsAny(candidate.Insert, " \t") {
+			t.Fatalf("an incomplete command word got arguments: %+v", candidate)
+		}
+		if candidate.Insert == "f" {
+			commandWord = true
+		}
+	}
+	if !commandWord {
+		t.Fatalf("history did not complete the command word: %+v", candidates)
+	}
+}
+
+// A broad command prefix returns every match; the bar scrolls through all of
+// them instead of stopping at the first screenful.
+func TestCompletionReturnsEveryMatchingCommand(t *testing.T) {
+	app, err := Start(Config{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Close()
+	fakeSession(t, app, 18, Host{ID: "host-18", Address: "example.com"})
+
+	candidates := completeLine(t, app, 18, "c", "en")
+	if len(candidates) <= 8 {
+		t.Fatalf("a broad prefix returned only %d commands", len(candidates))
+	}
+	for _, candidate := range candidates {
+		if candidate.Kind != "command" {
+			t.Fatalf("an unfinished command word offered a %s: %+v", candidate.Kind, candidate)
+		}
+		if !strings.HasPrefix(candidate.Text, "c") {
+			t.Fatalf("%q does not match the prefix", candidate.Text)
+		}
+	}
+}
+
+// After a complete command and a space the bar offers curated common
+// combinations with explanations, not the whole option table. The table is
+// still there for an explicit dash.
+func TestCompletionOffersCombinationsAfterACommand(t *testing.T) {
+	app, err := Start(Config{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Close()
+	fakeSession(t, app, 17, Host{ID: "host-17", Address: "example.com"})
+
+	// Without a space even a complete command word still lists longer
+	// commands: "ls" must offer "lsof", "lsblk" and the rest.
+	unfinished := completeLine(t, app, 17, "ls", "en")
+	found := make(map[string]bool, len(unfinished))
+	for _, candidate := range unfinished {
+		found[candidate.Text] = true
+		if candidate.Kind != "command" {
+			t.Fatalf("an unfinished command word offered a %s: %+v", candidate.Kind, candidate)
+		}
+	}
+	for _, want := range []string{"lsof", "lsblk"} {
+		if !found[want] {
+			t.Fatalf("ls did not offer %s: %+v", want, unfinished)
+		}
+	}
+
+	candidates := completeLine(t, app, 17, "lsof ", "en")
+	if len(candidates) == 0 {
+		t.Fatal("lsof offered no combination")
+	}
+	if candidates[0].Kind != "combo" || candidates[0].Text != "lsof -i" {
+		t.Fatalf("the first lsof suggestion is not its common combination: %+v", candidates[0])
+	}
+	if candidates[0].Desc == "" {
+		t.Fatalf("the combination has no explanation: %+v", candidates[0])
+	}
+	for _, candidate := range candidates {
+		if candidate.Kind == "option" {
+			t.Fatalf("individual options leaked into the default list: %+v", candidate)
+		}
+	}
+
+	// The same for a command that only the hand-written essentials know.
+	netstat := completeLine(t, app, 17, "netstat ", "en")
+	if len(netstat) == 0 || netstat[0].Text != "netstat -tulnp" {
+		t.Fatalf("netstat did not offer its common combination: %+v", netstat)
+	}
+	if netstat[0].Desc != "Listening TCP and UDP ports with process names" {
+		t.Fatalf("netstat explanation = %q", netstat[0].Desc)
+	}
+
+	// Typing the dash is an explicit request for the option table.
+	options := completeLine(t, app, 17, "lsof -", "en")
+	if len(options) == 0 || options[0].Kind != "option" || options[0].Text != "-i" {
+		t.Fatalf("an explicit dash did not open the option table: %+v", options)
 	}
 }
 

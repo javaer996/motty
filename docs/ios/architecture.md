@@ -238,16 +238,31 @@ rectCount × 16 bytes:
   Ctrl-C/D/Z、方向键与粘贴/复制；上排在没有建议时显示 Home/End、PgUp/PgDn 和
   readline 的 Ctrl-A/E/K/U/W/R/L。UIKit 只在配件首次展示时读取高度，所以这里不改
   高度，只交换上排内容，键盘不会跳动。
-- 内联补全：输入停顿 0.22 秒后，`completion.complete` 读取屏幕上的当前命令行，
-  依次合并本机历史（按使用次数、再按时间排序；本机没有匹配时用其它主机的历史补齐）、
-  精选参数组合（`internal/completion/combos.go`）、Carapace 内置目录与手写
-  essentials（`internal/completion/essentials.go`，补齐 netstat、ss、ip、iptables、
-  tcpdump、nmap、lsof、数据库客户端与 POSIX shell 内建等 Carapace 未覆盖的命令），
-  描述按界面语言本地化（`internal/completion/localize.go`）。空命令行不再展示按字母
-  排序的目录根命令，而是本机最近使用的命令。上排变成可横向滚动的建议芯片（命令、
-  描述、将插入的后缀），点按即把后缀发送到 shell；整行恰好是某个组合时不再有候选，
-  上排恢复为按键。`term` 的补全器理解短选项组合（`-tuln`、`-lah`）：组合中的每个
-  字母都按已用选项处理，带值的字母结束组合，因此继续补全时不会把整行判为不支持。
+- 内联补全：输入停顿 0.22 秒后，`completion.complete` 用 `TerminalUIView` 在本地
+  跟踪的、正在输入的命令行提问（`typed` 参数），而不是等远端回显后再从屏幕读取；
+  核心只校验光标确实位于普通 shell 提示符（排除密码提示和全屏程序），因此高延迟
+  链路、fish/zsh-autosuggestions 之类的灰色提示文字都不会再让补全失效。本地行
+  因方向键、Tab、Ctrl 键等编辑操作不可信时，`typed` 置空并回退到屏幕读取。
+  规则按输入阶段区分：第一个空格之前一律视为命令词还没写完——即使当前文本恰好
+  是一个完整命令，`ls` 仍要列出 `lsof`、`lsblk`、`lsb_release` 等所有更长命令，
+  因为用户可能还没打完。此阶段只提示命令（本机历史、其它主机历史、Carapace 内置
+  目录与手写 essentials/supplemental），返回全部前缀匹配（上限 200 条），建议
+  芯片行横向滚动展示全部而不是只显示前 8 条；命令后已经有空格时给出该命令的常用
+  组合（历史整行后缀、`combos.go` 手写精选组合、目录中的子命令），每条组合都带
+  说明，例如 `lsof ` 首条是 `lsof -i`（“网络文件及所属进程”），`netstat ` 首条是
+  `netstat -tulnp`（“监听中的 TCP/UDP 端口及进程”）。默认不再罗列单个参数；
+  只输入一个 `-` 或 `--` 时才展开该命令的选项表，继续输入选项名后组合与匹配的
+  选项会一起出现。essentials（`internal/completion/essentials.go`）补齐 netstat、
+  ss、ip、iptables、tcpdump、nmap、lsof、数据库客户端与 POSIX shell 内建等
+  Carapace 未覆盖的命令；文件末尾的 `supplementalRoots()` 再补充压缩/归档、
+  文件系统、权限/进程、虚拟化与包管理等约 240 个常用命令，两处合计把本地命令库
+  扩到约 1100 个根命令。描述按界面语言本地化（`internal/completion/localize.go`）。
+  空命令行不展示按字母排序的目录根命令，而是本机最近使用的命令。上排变成可横向
+  滚动的建议芯片：芯片显示完整的候选（`ne` 显示 `netstat`、`lsof ` 显示 `lsof -i`），
+  而不是只显示待插入的后缀；
+  点按芯片只把缺少的后缀发送到 shell。整行恰好是某个组合时不再有候选，上排恢复
+  为按键。`term` 的补全器理解短选项组合（`-tuln`、`-lah`）：组合中的每个字母
+  都按已用选项处理，带值的字母结束组合，因此继续补全时不会把整行判为不支持。
 - 硬件键盘：`UIKeyCommand` 映射到 `term` 的键盘编码（复用桌面键位规则）。
 - 中文 IME：`UITextInput` 组合输入，预编辑文本叠加显示，提交后发送。
 

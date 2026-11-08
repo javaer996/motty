@@ -507,20 +507,34 @@ var translations = map[string]translation{
 	"From your history": {"来自你的命令历史", "來自你的命令歷史"},
 }
 
-// LocalizeDesc returns desc in locale, or desc itself when this build has no
-// translation for it.
+// LocalizeDesc returns desc in locale. The hand-maintained table above covers
+// the wording the UI writes itself and the most common commands;
+// catalogTranslations covers every command name in the imported snapshot and
+// the hand-written catalog.
+//
+// The snapshot also carries tens of thousands of option and subcommand
+// descriptions. They are not all translated, and on a Chinese device a missing
+// one is dropped rather than shown in English: a chip with no subtitle reads
+// better than a Chinese screen with English sentences scattered through it.
+// English keeps the catalog's own text.
 func LocalizeDesc(desc, locale string) string {
 	if desc == "" {
 		return ""
 	}
 	entry, ok := translations[desc]
 	if !ok {
-		return desc
+		entry, ok = catalogTranslations[desc]
 	}
 	switch NormalizeLocale(locale) {
 	case LocaleHans:
+		if !ok {
+			return ""
+		}
 		return entry.hans
 	case LocaleHant:
+		if !ok {
+			return ""
+		}
 		return entry.hant
 	default:
 		return desc

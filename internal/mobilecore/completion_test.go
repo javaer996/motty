@@ -229,19 +229,26 @@ func TestCompletionOffersCombinationsAfterACommand(t *testing.T) {
 	fakeSession(t, app, 17, Host{ID: "host-17", Address: "example.com"})
 
 	// Without a space even a complete command word still lists longer
-	// commands: "ls" must offer "lsof", "lsblk" and the rest.
-	unfinished := completeLine(t, app, 17, "ls", "en")
-	found := make(map[string]bool, len(unfinished))
+	// commands: "ls" must offer "lsof", "lsblk" and the rest. On a Chinese
+	// device the description under each chip is translated too.
+	unfinished := completeLine(t, app, 17, "ls", "zh-Hans")
+	found := make(map[string]string, len(unfinished))
 	for _, candidate := range unfinished {
-		found[candidate.Text] = true
+		found[candidate.Text] = candidate.Desc
 		if candidate.Kind != "command" {
 			t.Fatalf("an unfinished command word offered a %s: %+v", candidate.Kind, candidate)
 		}
 	}
 	for _, want := range []string{"lsof", "lsblk"} {
-		if !found[want] {
+		if _, ok := found[want]; !ok {
 			t.Fatalf("ls did not offer %s: %+v", want, unfinished)
 		}
+	}
+	if got := found["lsblk"]; got != "列出块设备" {
+		t.Fatalf("lsblk description = %q, want the Chinese one", got)
+	}
+	if got := found["lsof"]; got != "列出打开的文件" {
+		t.Fatalf("lsof description = %q, want the Chinese one", got)
 	}
 
 	candidates := completeLine(t, app, 17, "lsof ", "en")

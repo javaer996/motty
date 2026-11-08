@@ -169,7 +169,16 @@ final class TerminalUIView: UIView, UIKeyInput {
         }
         bar.onSuggestion = { [weak self] candidate in
             guard let self, !candidate.insert.isEmpty else { return }
-            self.send(Data(candidate.insert.utf8))
+            var insert = candidate.insert
+            // Picking a command name is the same as finishing the word: add
+            // the space too, so the combinations for that command come up
+            // without another keystroke. Combinations and remembered whole
+            // lines carry their own separators and must not grow one.
+            if candidate.kind == "command", self.completingCommandWord,
+               !insert.contains(where: { $0 == " " || $0 == "\t" }) {
+                insert += " "
+            }
+            self.send(Data(insert.utf8))
             // The screen has not echoed yet; ask again once it has.
             self.scheduleCompletion(after: 0.35)
         }
@@ -995,6 +1004,14 @@ final class TerminalUIView: UIView, UIKeyInput {
     }
 
     // MARK: Inline completion
+
+    /// True while the tracked line is still the first word. Selecting a
+    /// command at that point should type the separating space too, which is
+    /// what makes the command's combinations appear right away.
+    private var completingCommandWord: Bool {
+        guard let line = typedLine, !line.isEmpty else { return false }
+        return !line.contains(where: { $0 == " " || $0 == "\t" })
+    }
 
     /// Asks the core what the line could continue into, after the shell has had
     /// a moment to echo the keystroke.

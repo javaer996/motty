@@ -13,9 +13,10 @@ func TestLocalizeDescSpeaksTheUiLanguage(t *testing.T) {
 	if got := LocalizeDesc(english, "en"); got != english {
 		t.Fatalf("en = %q", got)
 	}
-	// An untranslated description is better than an empty row.
-	if got := LocalizeDesc("something nobody translated", "zh-Hans"); got != "something nobody translated" {
-		t.Fatalf("untranslated = %q", got)
+	// A Chinese screen never mixes in English: an untranslated description
+	// leaves the chip without a subtitle.
+	if got := LocalizeDesc("something nobody translated", "zh-Hans"); got != "" {
+		t.Fatalf("untranslated = %q, want an empty subtitle", got)
 	}
 	if got := LocalizeDesc("", "zh-Hans"); got != "" {
 		t.Fatalf("empty = %q", got)

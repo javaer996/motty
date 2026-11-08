@@ -217,6 +217,47 @@ final class ScrollLatencyUITests: XCTestCase {
                       "the first ls combination was not ls -lah: \(combo.label)")
     }
 
+    /// Picking a command name types the separating space too, so the
+    /// command's combinations appear without another keystroke.
+    func testPickingACommandContinuesWithItsCombinations() throws {
+        let (app, probe) = try connect(autoType: "")
+
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
+        app.typeText("netsta")
+
+        let command = app.buttons["suggestion.0"]
+        XCTAssertTrue(command.waitForExistence(timeout: 10),
+                      "netstat was not offered")
+        XCTAssertTrue(command.label.hasPrefix("netstat"),
+                      "the first candidate was not netstat: \(command.label)")
+        command.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+
+        // The core reads the tracked line back, so the underscore proves the
+        // space was typed together with the missing suffix.
+        let spaced = XCTNSPredicateExpectation(
+            predicate: NSPredicate { object, _ in
+                guard let element = object as? XCUIElement,
+                      let value = element.value as? String,
+                      let line = self.string(named: "line", in: value) else {
+                    return false
+                }
+                return line == "netstat_"
+            },
+            object: probe
+        )
+        wait(for: [spaced], timeout: 10)
+
+        // The bar switched from the command name to its common combinations.
+        let combo = app.buttons["suggestion.0"]
+        let ready = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                combo.exists && combo.label.hasPrefix("netstat -tulnp")
+            },
+            object: nil
+        )
+        wait(for: [ready], timeout: 10)
+    }
+
     /// Several assistant providers can be configured and the active one
     /// switched. This walks the real settings screen, so the Swift form, the
     /// bridge and the Go save all have to agree on the provider list shape.

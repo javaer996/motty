@@ -42,7 +42,11 @@ func Open(ctx context.Context, dial desktop.Dialer, address string, opts desktop
 	}
 	// The handshake has its own timeout; cancelling the context must end it too.
 	stop := context.AfterFunc(ctx, func() { conn.Close() })
-	client, err := rfb.Connect(conn, rfb.Config{Password: opts.Password, AskPassword: opts.AskPassword})
+	client, err := rfb.Connect(conn, rfb.Config{
+		Password:           opts.Password,
+		AskPassword:        opts.AskPassword,
+		MinRequestInterval: opts.RequestInterval,
+	})
 	if !stop() && err == nil {
 		err = ctx.Err() // cancelled just as the handshake finished
 	}
@@ -114,6 +118,10 @@ func (session *Session) Err() error {
 }
 
 func (session *Session) SetActive(active bool) { session.client.SetActive(active) }
+
+// Refresh asks the server to send the whole picture again, which wakes up a
+// server that stopped updating after its screen layout changed.
+func (session *Session) Refresh() error { return session.client.Refresh() }
 
 func (session *Session) Close() error {
 	session.mu.Lock()

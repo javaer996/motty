@@ -2833,6 +2833,22 @@
         }
       }
     },
+    "Hide controls": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隐藏控制条"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隱藏控制列"
+          }
+        }
+      }
+    },
     "Hiding host names can make answers less useful.": {
       "localizations": {
         "zh-Hans": {
@@ -5185,6 +5201,22 @@
         }
       }
     },
+    "Refresh picture": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "刷新画面"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新整理畫面"
+          }
+        }
+      }
+    },
     "Region (empty is us-east-1; R2 uses auto)": {
       "localizations": {
         "zh-Hans": {
@@ -7197,6 +7229,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "此伺服器不支援在這裡編輯檔案。"
+          }
+        }
+      }
+    },
+    "Three-finger tap shows controls": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "三指点按可显示控制条"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "三指點按可顯示控制列"
           }
         }
       }

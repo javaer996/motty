@@ -97,7 +97,7 @@ func TestManySmallUpdatesCollapseIntoOneBoundingRectangle(t *testing.T) {
 	}
 }
 
-func TestResizeNotifiesAndKeepsNothingOfTheOldPicture(t *testing.T) {
+func TestResizeKeepsWhatTheOldPictureHadInsideTheNewBounds(t *testing.T) {
 	notified := 0
 	frame := NewFrame(func() { notified++ })
 	frame.Resize(10, 10)
@@ -105,8 +105,28 @@ func TestResizeNotifiesAndKeepsNothingOfTheOldPicture(t *testing.T) {
 	frame.Resize(4, 4)
 	var shown mirror
 	frame.Present(&shown)
-	if notified != 3 || shown.width != 4 || !bytes.Equal(shown.pix, make([]byte, 64)) {
+	// The overlap is kept: a server does not always repaint everything after
+	// its layout changed, and the watcher must not be left with a black screen.
+	kept := bytes.Repeat([]byte{5, 5, 5, 0}, 16)
+	if notified != 3 || shown.width != 4 || shown.height != 4 || !bytes.Equal(shown.pix, kept) {
 		t.Fatalf("notified %d times, shown %dx%d, content %v", notified, shown.width, shown.height, shown.pix)
+	}
+}
+
+func TestResizeToTheSameSizeLeavesThePictureAlone(t *testing.T) {
+	notified := 0
+	frame := NewFrame(func() { notified++ })
+	frame.Resize(4, 4)
+	frame.Fill(0, 0, 4, 4, 7, 7, 7)
+	var shown mirror
+	frame.Present(&shown)
+	notified, shown.updates = 0, nil
+	frame.Resize(4, 4)
+	if frame.Present(&shown) {
+		t.Fatal("a resize to the same size asked for an update")
+	}
+	if notified != 0 || len(shown.updates) != 0 {
+		t.Fatalf("notified %d times, %d updates", notified, len(shown.updates))
 	}
 }
 

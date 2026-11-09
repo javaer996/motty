@@ -120,7 +120,7 @@ void  MottyFree(char *s);
 | `forwards.list` / `forwards.add` / `forwards.update` / `forwards.remove` / `forwards.start` / `forwards.stop` / `forwards.status` | 端口转发 |
 | `logs.list` / `logs.events` / `logs.stats` / `logs.favorite` / `logs.delete` / `logs.clear` | 会话日志 |
 | `history.list` / `history.delete` / `history.clear` / `completion.complete` | 命令历史与补全 |
-| `desktop.open` / `desktop.close` / `desktop.status` / `desktop.pointer` / `desktop.wheel` / `desktop.key` / `desktop.text` / `desktop.clipboard.get` / `desktop.clipboard.set` / `desktop.answer` / `desktop.resize` / `desktop.active` | VNC/RDP |
+| `desktop.open` / `desktop.close` / `desktop.status` / `desktop.refresh` / `desktop.pointer` / `desktop.wheel` / `desktop.key` / `desktop.text` / `desktop.clipboard.get` / `desktop.clipboard.set` / `desktop.answer` / `desktop.resize` / `desktop.active` | VNC/RDP |
 | `ai.settings.get` / `ai.settings.save` / `ai.models` | 供应商列表与当前供应商（端点、key、模型、模式）；`ai.models` 可带未保存的草稿 |
 | `ai.send` / `ai.cancel` / `ai.approve` / `ai.reset` | 对话与审批 |
 | `ai.conversations` / `ai.conversation.get` / `ai.conversation.delete` | 按主机保存的对话历史：列表、打开继续、删除 |
@@ -198,7 +198,24 @@ rectCount × 16 bytes:
 
 - `sinceVersion == 0` 或没有累积脏矩形时返回整屏；否则只返回尚未交给前端的脏矩形。
 - 快照成功写出后才清空脏矩形；缓冲区不足时不清空，前端用返回的所需大小重试。
-- 大于 2732×2048 的远端画面被拒绝，会话以明确错误结束，避免分配上百 MB 的双缓冲。
+- 大于 5120×3456 或 14.7 M 像素（5K）的远端画面被拒绝，会话以明确错误结束，避免分配上百 MB 的双缓冲。真实桌面（4K、5K、超宽屏）都在范围内。
+
+### 4.5 远程桌面画面与交互
+
+- 帧像素从上到下（行 0 是远端顶行），与 RFB 的扫描顺序一致；RDP 的 bottom-up framebuffer 在 `ReadRectBGRA` 读出时翻转。Swift 侧 `CGImage` 直接承载这些行。
+- UIKit 的 `draw(_:)` 提供左上原点、y 向下的 CTM，而 `CGContext.draw` 把图像第 0 行放在用户空间矩形的顶部（即视觉底部）：绘制前先 `translateBy(y: minY+maxY)` + `scaleBy(y: -1)` 翻转，否则整幅画面上下颠倒。
+- 连接后进入沉浸模式：隐藏导航栏、状态栏与 home indicator，画面 `ignoresSafeArea()` 铺满全屏，不遮挡远端自动隐藏的菜单栏/任务栏。
+- 控制条（关闭、协议标签、键栏）是浮层：默认隐藏，三指点按画面切换；`.defersSystemGestures(on: .all)` 推迟系统边缘手势，把屏幕边缘的触摸优先留给远端。
+- 控制条随方向换边：竖屏时按钮条在顶部、键栏在底部；横屏时按钮列在左侧、键栏在右侧。远端菜单栏/任务栏留出的上下边缘不会被控制条永久占用，横屏也不损失高度。
+- 拖动时手指移出画面 28 pt 以内会钳制到画面边缘（`pixelPointAtEdge`），让指针能到达远端屏幕最顶/最底一行，触发自动隐藏的菜单栏或任务栏。
+- 手势分工：单指拖动移动指针；双指滚动发滚轮；双指轻点右击；双指捏合缩放（1–4 倍）。缩放后双指拖动平移画面本身（`pictureOffset`，钳制到不露黑边），不再发滚轮，触摸坐标按放大后的 `pictureRect` 反算远端像素。pinch 与双指 pan 通过 `UIGestureRecognizerDelegate` 允许同时识别，否则捏合时伴随的位移会把 pan 永远压住，放大后无法平移。
+- 远端画面尺寸变化（Space 切换、显示器布局改变）时 `desktop.Frame.Resize` 保留旧画面与新尺寸重叠的部分，尺寸不变则直接返回：服务器不保证 resize 后重绘整屏，清空缓冲会让画面变黑且没有任何请求再要数据——这正是「第一次切屏正常、第二次卡死」的来源。伪编码 -308/-307 的解析见下。
+- 弱网下 VNC 的 FramebufferUpdateRequest 有最小间隔（`desktop.Options.RequestInterval`，移动端 33 ms ≈ 30 fps），限制服务器可用的带宽上限；RDP 服务器自己推送，不受此限。
+- 密码提示事件可能因事件队列丢事件而缺失：当前端看到状态为 `password` 却没有提示事件时，仍按状态显示密码表单。
+- 桌面页每秒轮询 `desktop.status`（不只等待态），任何被丢掉的状态事件最迟一秒内补上，避免画面冻结却没有任何提示。
+- RFB 客户端接受并解析 `ExtendedDesktopSize`（-308）与 `DesktopName`（-307）伪编码：切换 macOS Space 时服务器会发送显示器布局变化，旧实现会把未知编码当成协议错误并断开，看起来就是画面卡死。
+- `-308` 的矩形头里 x/y 是变更原因与状态码，width/height 才是新的 framebuffer 尺寸；矩形体是 12 字节（x-min、y-min、x-max、y-max、屏数、3 字节 padding）加每屏 16 字节布局。矩形体解析必须与协议完全一致，差一个字节就会把后面的像素矩形读错位，连接随即冻结且刷新无效。仅布局变化、尺寸不变时保持画面并继续增量请求，不请求整屏，省流量。
+- 控制条的刷新按钮发 `desktop.refresh`：VNC 发送非增量 FramebufferUpdateRequest，RDP 用 SetOutputSuppressed 往返，让停止推送的服务器重绘整屏。
 
 ## 5. 终端子系统
 

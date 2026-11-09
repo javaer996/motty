@@ -21,6 +21,10 @@ struct DesktopSessionView: View {
     @State private var showingClipboard = false
     @State private var localClipboardText = ""
     @State private var surfaceHandle = DesktopSurfaceHandle()
+    /// The picture goes edge to edge; the controls are an overlay a three-finger
+    /// tap brings back, so nothing covers the remote menubar or taskbar.
+    @State private var chromeVisible = false
+    @State private var showsChromeHint = false
 
     private var state: DesktopState? {
         if let desktop, let live = bridge.desktops[desktop.id] {
@@ -34,6 +38,13 @@ struct DesktopSessionView: View {
         return bridge.desktopPrompts[id]
     }
 
+    /// The core says it is waiting for a password but the prompt event never
+    /// arrived (the queue drops while the app is busy, for one): the state is
+    /// enough to show the form, so the session cannot sit on a spinner.
+    private var needsPassword: Bool {
+        prompt == nil && state?.state == "password"
+    }
+
     private var connected: Bool { state?.isConnected == true }
 
     var body: some View {
@@ -43,12 +54,45 @@ struct DesktopSessionView: View {
                     Color.black.ignoresSafeArea()
 
                     if let state, state.isConnected {
-                        DesktopSurface(desktopID: state.id, handle: surfaceHandle, bridge: bridge)
-                            .ignoresSafeArea(edges: .bottom)
+                        DesktopSurface(
+                            desktopID: state.id,
+                            handle: surfaceHandle,
+                            bridge: bridge,
+                            onToggleChrome: { toggleChrome() }
+                        )
+                        .ignoresSafeArea()
+                    }
+
+                    if connected, chromeVisible {
+                        chromeOverlay
+                            .transition(.opacity)
+                    }
+
+                    if connected, showsChromeHint, !chromeVisible {
+                        Text("Three-finger tap shows controls")
+                            .font(.caption)
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(.ultraThinMaterial, in: Capsule())
+                            .frame(maxHeight: .infinity, alignment: .top)
+                            .padding(.top, 18)
+                            .allowsHitTesting(false)
+                            .transition(.opacity)
                     }
 
                     if let prompt {
                         promptOverlay(prompt)
+                    } else if needsPassword, let state {
+                        promptOverlay(DesktopPrompt(
+                            id: state.id,
+                            kind: .password,
+                            attempt: state.attempt,
+                            address: nil,
+                            fingerprint: nil,
+                            known: nil,
+                            changed: nil
+                        ))
                     } else if let state, state.isWaiting {
                         statusOverlay(state, failed: false)
                     } else if let state, state.state == "failed" {
@@ -72,6 +116,7 @@ struct DesktopSessionView: View {
             }
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar(connected ? .hidden : .visible, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     if let state, state.isConnected {
@@ -97,11 +142,9 @@ struct DesktopSessionView: View {
                 }
             }
         }
-        .safeAreaInset(edge: .bottom) {
-            if connected {
-                keyBar
-            }
-        }
+        .statusBarHidden(connected)
+        .persistentSystemOverlays(connected ? .hidden : .automatic)
+        .defersSystemGestures(on: connected ? .all : [])
         .sheet(isPresented: $showingClipboard) {
             clipboardSheet
         }
@@ -122,10 +165,22 @@ struct DesktopSessionView: View {
         .onChange(of: state?.state) { _, value in
             if value == "closed" { dismiss() }
         }
+        .onChange(of: connected) { _, value in
+            guard value else {
+                chromeVisible = false
+                showsChromeHint = false
+                return
+            }
+            // The controls are there to be used: show them on connection and
+            // let the eye button put them away for a picture with no rails.
+            chromeVisible = true
+            showsChromeHint = false
+        }
         .onReceive(Timer.publish(every: 1.0, on: .main, in: .common).autoconnect()) { _ in
-            // Events carry every transition; this poll is the safety net for one
-            // that the queue dropped while the app was busy.
-            guard let id = desktop?.id, let state, state.isWaiting else { return }
+            // Events carry every transition, but one dropped event must not
+            // leave a connected tab showing a frozen picture, or a waiting one
+            // without its password form: poll as long as the session exists.
+            guard let id = desktop?.id else { return }
             bridge.refreshDesktop(id) { _ in }
         }
         .preferredColorScheme(.dark)
@@ -142,8 +197,8 @@ struct DesktopSessionView: View {
         errorText = nil
         let scale = Double(UIScreen.main.scale)
         let source = viewSize == .zero ? UIScreen.main.bounds.size : viewSize
-        let width = min(max(Int(source.width * UIScreen.main.scale), 320), 2732)
-        let height = min(max(Int(source.height * UIScreen.main.scale), 240), 2048)
+        let width = min(max(Int(source.width * UIScreen.main.scale), 320), 5120)
+        let height = min(max(Int(source.height * UIScreen.main.scale), 240), 3456)
         do {
             desktop = try await bridge.openDesktop(host: host, width: width, height: height, scale: scale)
         } catch {
@@ -159,8 +214,8 @@ struct DesktopSessionView: View {
             // A rotation settles before the server is asked for a new desktop.
             try? await Task.sleep(for: .milliseconds(350))
             if Task.isCancelled { return }
-            let width = min(Int(size.width * UIScreen.main.scale), 2732)
-            let height = min(Int(size.height * UIScreen.main.scale), 2048)
+            let width = min(Int(size.width * UIScreen.main.scale), 5120)
+            let height = min(Int(size.height * UIScreen.main.scale), 3456)
             bridge.desktopResize(
                 desktopID: id,
                 width: width,
@@ -179,6 +234,116 @@ struct DesktopSessionView: View {
     }
 
     // MARK: Overlays
+
+    private func toggleChrome() {
+        withAnimation(.easeInOut(duration: 0.18)) {
+            chromeVisible.toggle()
+        }
+        guard !chromeVisible else { return }
+        // Hidden, the controls need a reminder of how they come back.
+        showsChromeHint = true
+        Task {
+            try? await Task.sleep(for: .seconds(3))
+            withAnimation(.easeOut(duration: 0.3)) { showsChromeHint = false }
+        }
+    }
+
+    /// Close, the protocol badge and the key bar, laid over the picture rather
+    /// than shrinking it. Portrait puts the rails above and below the picture;
+    /// landscape puts them on its sides, so the remote menubar and taskbar keep
+    /// the screen's top and bottom edges to themselves.
+    @ViewBuilder
+    private var chromeOverlay: some View {
+        if isLandscape {
+            HStack(spacing: 0) {
+                VStack(spacing: 10) {
+                    closeButton
+                    refreshButton
+                    hideChromeButton
+                    Spacer(minLength: 0)
+                }
+                .padding(.vertical, 12)
+                .padding(.horizontal, 8)
+                .background(.ultraThinMaterial, ignoresSafeAreaEdges: [.top, .bottom, .leading])
+
+                Spacer(minLength: 0)
+
+                verticalKeyBar
+                    .background(.bar, ignoresSafeAreaEdges: [.top, .bottom, .trailing])
+            }
+        } else {
+            VStack(spacing: 0) {
+                HStack(spacing: 12) {
+                    closeButton
+                    if let state {
+                        protocolBadge(state)
+                    }
+                    Spacer()
+                    refreshButton
+                    hideChromeButton
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(.ultraThinMaterial, ignoresSafeAreaEdges: [.top, .leading, .trailing])
+
+                Spacer(minLength: 0)
+
+                horizontalKeyBar
+                    .background(.bar, ignoresSafeAreaEdges: [.bottom, .leading, .trailing])
+            }
+        }
+    }
+
+    private var isLandscape: Bool { viewSize.width > viewSize.height }
+
+    private var closeButton: some View {
+        Button {
+            disconnect()
+        } label: {
+            chromeIcon("xmark")
+        }
+        .accessibilityLabel("Close")
+    }
+
+    private var refreshButton: some View {
+        Button {
+            if let id = state?.id {
+                bridge.desktopRefresh(desktopID: id)
+            }
+        } label: {
+            chromeIcon("arrow.clockwise")
+        }
+        .accessibilityLabel("Refresh picture")
+    }
+
+    private var hideChromeButton: some View {
+        Button {
+            toggleChrome()
+        } label: {
+            chromeIcon("eye.slash")
+        }
+        .accessibilityLabel("Hide controls")
+    }
+
+    private func chromeIcon(_ name: String) -> some View {
+        Image(systemName: name)
+            .font(.system(size: 15, weight: .semibold))
+            .foregroundStyle(.white)
+            .frame(width: 32, height: 32)
+            .background(.black.opacity(0.45), in: Circle())
+    }
+
+    private func protocolBadge(_ state: DesktopState) -> some View {
+        Label {
+            Text(state.encrypted ? "\(state.protocolText) · encrypted" : state.protocolText)
+                .font(.caption)
+                .lineLimit(1)
+        } icon: {
+            Image(systemName: state.encrypted ? "lock.fill" : "exclamationmark.triangle")
+        }
+        .font(.caption)
+        .foregroundStyle(.white.opacity(0.9))
+    }
 
     @ViewBuilder
     private func statusOverlay(_ state: DesktopState, failed: Bool) -> some View {
@@ -313,57 +478,74 @@ struct DesktopSessionView: View {
 
     // MARK: Key bar
 
-    private var keyBar: some View {
+    /// The key bar of a portrait phone: a strip along the bottom.
+    private var horizontalKeyBar: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                symbolButton("keyboard", label: "Keyboard") {
-                    surfaceHandle.toggleKeyboard()
-                }
-                Divider().frame(height: 22)
-                textButton("esc") { sendKey("escape") }
-                textButton("tab") { sendKey("tab") }
-                modifierButton("control", label: "ctrl")
-                modifierButton("alt", label: "alt")
-                modifierButton("meta", label: "cmd")
-                Divider().frame(height: 22)
-                symbolButton("arrow.left", label: "Left") { sendKey("left") }
-                symbolButton("arrow.down", label: "Down") { sendKey("down") }
-                symbolButton("arrow.up", label: "Up") { sendKey("up") }
-                symbolButton("arrow.right", label: "Right") { sendKey("right") }
-                Menu {
-                    ForEach(1...12, id: \.self) { number in
-                        Button("F\(number)") { sendKey("f\(number)") }
-                    }
-                    Divider()
-                    Button("Home") { sendKey("home") }
-                    Button("End") { sendKey("end") }
-                    Button("Page Up") { sendKey("pageup") }
-                    Button("Page Down") { sendKey("pagedown") }
-                    Button("Insert") { sendKey("insert") }
-                    Button("Delete") { sendKey("delete") }
-                    Divider()
-                    Button("Ctrl+Alt+Del") {
-                        chord(modifiers: ["control", "alt"], key: "delete")
-                    }
-                    Button("Ctrl+C") { chord(modifiers: ["control"], key: "c") }
-                    Button("Ctrl+V") { chord(modifiers: ["control"], key: "v") }
-                    Button("Ctrl+Z") { chord(modifiers: ["control"], key: "z") }
-                } label: {
-                    Image(systemName: "ellipsis.circle")
-                        .font(.system(size: 16))
-                        .padding(.horizontal, 8)
-                        .frame(height: 34)
-                }
-                Divider().frame(height: 22)
-                symbolButton("doc.on.clipboard", label: "Clipboard") {
-                    localClipboardText = UIPasteboard.general.string ?? ""
-                    showingClipboard = true
-                }
-            }
-            .padding(.horizontal, 12)
+            HStack(spacing: 6) { keyBarButtons }
+                .padding(.horizontal, 12)
         }
         .frame(height: 44)
-        .background(.bar)
+    }
+
+    /// The key bar of a landscape phone: a column down the side, which leaves
+    /// the wide screen its full height.
+    private var verticalKeyBar: some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(spacing: 6) {
+                keyBarButtons
+            }
+            .padding(.vertical, 12)
+        }
+        .frame(width: 46)
+    }
+
+    @ViewBuilder
+    private var keyBarButtons: some View {
+        symbolButton("keyboard", label: "Keyboard") {
+            surfaceHandle.toggleKeyboard()
+        }
+        Divider()
+        textButton("esc") { sendKey("escape") }
+        textButton("tab") { sendKey("tab") }
+        modifierButton("control", label: "ctrl")
+        modifierButton("alt", label: "alt")
+        modifierButton("meta", label: "cmd")
+        Divider()
+        symbolButton("arrow.left", label: "Left") { sendKey("left") }
+        symbolButton("arrow.down", label: "Down") { sendKey("down") }
+        symbolButton("arrow.up", label: "Up") { sendKey("up") }
+        symbolButton("arrow.right", label: "Right") { sendKey("right") }
+        Menu {
+            ForEach(1...12, id: \.self) { number in
+                Button("F\(number)") { sendKey("f\(number)") }
+            }
+            Divider()
+            Button("Home") { sendKey("home") }
+            Button("End") { sendKey("end") }
+            Button("Page Up") { sendKey("pageup") }
+            Button("Page Down") { sendKey("pagedown") }
+            Button("Insert") { sendKey("insert") }
+            Button("Delete") { sendKey("delete") }
+            Divider()
+            Button("Ctrl+Alt+Del") {
+                chord(modifiers: ["control", "alt"], key: "delete")
+            }
+            Button("Ctrl+C") { chord(modifiers: ["control"], key: "c") }
+            Button("Ctrl+V") { chord(modifiers: ["control"], key: "v") }
+            Button("Ctrl+Z") { chord(modifiers: ["control"], key: "z") }
+        } label: {
+            Image(systemName: "ellipsis.circle")
+                .font(.system(size: 16))
+                .frame(minWidth: 30, minHeight: 34)
+                .padding(.horizontal, 4)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.borderless)
+        Divider()
+        symbolButton("doc.on.clipboard", label: "Clipboard") {
+            localClipboardText = UIPasteboard.general.string ?? ""
+            showingClipboard = true
+        }
     }
 
     private func symbolButton(_ systemImage: String, label: String, action: @escaping () -> Void) -> some View {

@@ -332,6 +332,10 @@ type Options struct {
 	// what the user typed (the name the pin is kept under), not necessarily where
 	// the bytes went. Nil accepts any certificate, which only tests do.
 	VerifyCertificate func(address string, der []byte) error
+	// RequestInterval caps how often a server that sends only on request (VNC)
+	// is asked for a new frame, which caps the bandwidth it can use. Zero asks
+	// as soon as each frame arrives.
+	RequestInterval time.Duration
 }
 
 // Dialer opens the byte stream to the server: a direct TCP connection, or a

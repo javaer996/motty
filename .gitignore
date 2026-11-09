@@ -22,3 +22,6 @@ __pycache__/
 
 /ios/build/
 /ios/Frameworks/
+
+# Android work lives on its own branch; this one keeps the tree clean.
+/android/

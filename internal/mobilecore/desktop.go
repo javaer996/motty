@@ -36,12 +36,14 @@ const (
 )
 
 const (
-	// maxDesktopWidth/Height bound what one frame buffer may hold: the largest
-	// iPad screen with headroom. Larger server pictures are refused instead of
-	// letting the app allocate a hundred megabytes.
-	maxDesktopWidth     = 2732
-	maxDesktopHeight    = 2048
-	maxDesktopPixels    = maxDesktopWidth * maxDesktopHeight
+	// maxDesktopWidth/Height bound what one frame buffer may hold. A VNC
+	// server picks its own picture size, so this has to cover real desktops,
+	// not just the largest iPad: 4K, 5K and ultrawide setups all fit. Past
+	// this the session ends with a clear error instead of letting one server
+	// allocate hundreds of megabytes.
+	maxDesktopWidth     = 5120
+	maxDesktopHeight    = 3456
+	maxDesktopPixels    = 5120 * 2880 // 5K, 59 MB of BGRA
 	desktopDialTimeout  = 20 * time.Second
 	desktopFramePeriod  = 25 * time.Millisecond
 	desktopDirtyLimit   = 32
@@ -317,7 +319,10 @@ func (d *desktopSession) logKey() uint32 { return desktopLogKey(d.id) }
 func (d *desktopSession) live() bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	return d.phase != desktopFailed && d.phase != desktopClosed
+	// closed is set the moment desktop.close arrives, while the goroutine is
+	// still winding the connection down: a reopen after a close must not be
+	// handed the session that is leaving.
+	return !d.closed && d.phase != desktopFailed && d.phase != desktopClosed
 }
 
 func (d *desktopSession) state() desktopState {
@@ -378,12 +383,46 @@ func (d *desktopSession) close() {
 
 func (d *desktopSession) run() {
 	defer close(d.done)
-	sess, err := d.connect()
-	if err != nil {
-		d.failConnect(err)
-		return
+	defer d.cancel()
+	var backoff time.Duration
+	for {
+		sess, err := d.connect()
+		if err != nil {
+			d.failConnect(err)
+			return
+		}
+		if d.serve(sess) {
+			return
+		}
+		// The connection broke or its stream went out of step: only a new
+		// connection can bring the picture back. Wait a little longer after
+		// each failure, and give up when the user closes the tab.
+		select {
+		case <-d.tunnelDone:
+			// The SSH connection carrying this desktop is gone, and this
+			// session cannot build another one.
+			err := errors.New("the SSH tunnel closed")
+			d.setState(desktopFailed, err)
+			d.manager.logs.finish(d.logKey(), sessionlog.StatusFailed, sessionlog.ReasonNetworkLost)
+			return
+		default:
+		}
+		backoff = min(max(backoff*2, time.Second), 8*time.Second)
+		d.setState(desktopConnecting, nil)
+		select {
+		case <-d.ctx.Done():
+			d.setState(desktopClosed, nil)
+			d.manager.logs.finish(d.logKey(), sessionlog.StatusEnded, sessionlog.ReasonCanceled)
+			return
+		case <-time.After(backoff):
+		}
 	}
+}
 
+// serve runs one connection until it ends and reports whether the session is
+// over for good: the user closed it, or its picture cannot be held at all. A
+// broken connection returns false, and run replaces it with a new one.
+func (d *desktopSession) serve(sess desktop.Session) bool {
 	d.mu.Lock()
 	d.sess = sess
 	d.phase = desktopConnected
@@ -419,13 +458,13 @@ func (d *desktopSession) run() {
 	case <-tunnelDone:
 		reason = errors.New("the SSH tunnel closed")
 	}
-	d.cancel()
 	_ = sess.Close()
 	<-pumpDone
 
 	d.mu.Lock()
 	closed := d.closed || userClosed
-	if d.pumpErr != nil {
+	pumpFailed := d.pumpErr != nil
+	if pumpFailed {
 		reason = d.pumpErr
 	}
 	d.sess = nil
@@ -435,13 +474,20 @@ func (d *desktopSession) run() {
 	case closed && reason == nil:
 		d.setState(desktopClosed, nil)
 		d.manager.logs.finish(d.logKey(), sessionlog.StatusEnded, sessionlog.ReasonUserClosed)
-	case reason == nil:
-		err := errors.New("the server closed the connection")
-		d.setState(desktopFailed, err)
-		d.manager.logs.finish(d.logKey(), sessionlog.StatusFailed, sessionlog.ReasonNetworkLost)
-	default:
+		return true
+	case pumpFailed:
+		// The screen is too large for this device: another connection would
+		// only fail the same way.
 		d.setState(desktopFailed, reason)
 		d.manager.logs.finish(d.logKey(), sessionlog.StatusFailed, desktopReason(reason))
+		return true
+	default:
+		if reason == nil {
+			reason = errors.New("the server closed the connection")
+		}
+		// The journal keeps the broken attempt; the retry opens a new record.
+		d.manager.logs.finish(d.logKey(), sessionlog.StatusFailed, desktopReason(reason))
+		return false
 	}
 }
 
@@ -478,6 +524,9 @@ func (d *desktopSession) openSession() (desktop.Session, error) {
 		AskPassword: d.askPassword,
 		Notify:      d.wakeup,
 		Clipboard:   host.ClipboardEnabled(),
+		// A phone is often on a slow link: 30 frames a second is smooth enough
+		// for a desktop and caps what the server can send.
+		RequestInterval: 33 * time.Millisecond,
 	}
 	if host.ViaSSH == "" {
 		// Without a tunnel the desktop can leave through the host's own proxy,
@@ -727,7 +776,11 @@ func (d *desktopSession) pump(sess desktop.Session, done chan<- struct{}) {
 		sess.Present(d.frame)
 		if width, height := d.frame.oversized(); width > 0 {
 			d.mu.Lock()
-			d.pumpErr = fmt.Errorf("the remote picture is %d×%d, larger than this device can show", width, height)
+			d.pumpErr = fmt.Errorf(
+				"the remote picture is %d×%d, larger than this device can show; "+
+					"lower the server's display resolution (at most %d megapixels)",
+				width, height, maxDesktopPixels/1_000_000,
+			)
 			d.mu.Unlock()
 			d.cancel()
 			return
@@ -811,6 +864,26 @@ func (d *desktopSession) resize(width, height int, scale float64) error {
 	d.mu.Lock()
 	d.reqWidth, d.reqHeight, d.scale = width, height, float32(scale)
 	d.mu.Unlock()
+	return nil
+}
+
+// refresh asks the server to draw the whole picture again. Servers sometimes
+// stop sending updates after their screen layout changes (switching a macOS
+// Space does); a full request is what wakes them up.
+func (d *desktopSession) refresh() error {
+	sess := d.session()
+	if sess == nil {
+		return errorf(CodeConflict, "the remote desktop is not connected")
+	}
+	if refresher, ok := sess.(interface{ Refresh() error }); ok {
+		if err := refresher.Refresh(); err != nil {
+			return errorf(CodeUnavailable, "cannot ask the server to redraw: %v", err)
+		}
+		return nil
+	}
+	// RDP: suppressing the output and resuming it makes the server repaint.
+	sess.SetActive(false)
+	sess.SetActive(true)
 	return nil
 }
 
@@ -1030,6 +1103,18 @@ func (a *App) callDesktop(method string, params json.RawMessage) (bool, any, err
 			return true, nil, err
 		}
 		return true, map[string]any{"desktops": a.desktops.list(request.ID)}, nil
+	case "desktop.refresh":
+		var request struct {
+			ID uint32 `json:"id"`
+		}
+		if err := decodeParams(params, &request); err != nil {
+			return true, nil, err
+		}
+		d, err := a.desktops.get(request.ID)
+		if err != nil {
+			return true, nil, err
+		}
+		return true, map[string]bool{"sent": true}, d.refresh()
 	case "desktop.pointer":
 		var request struct {
 			ID      uint32 `json:"id"`

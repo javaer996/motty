@@ -33,11 +33,26 @@ func (frame *Frame) Size() (width, height int) {
 	return frame.width, frame.height
 }
 
-// Resize makes the picture width x height, black, and marks all of it changed.
+// Resize makes the picture width x height and marks all of it changed. What the
+// old picture had inside the new bounds is kept: a server does not always
+// repaint the whole screen after a resize, and a cleared buffer would leave
+// whoever watches staring at black with nothing asking the server to redraw.
 func (frame *Frame) Resize(width, height int) {
 	frame.mu.Lock()
+	if width == frame.width && height == frame.height && frame.pix != nil {
+		frame.mu.Unlock()
+		return
+	}
+	oldWidth, oldHeight, oldPix := frame.width, frame.height, frame.pix
+	pix := make([]byte, width*height*4)
+	if oldPix != nil && oldWidth > 0 && oldHeight > 0 {
+		columns := min(oldWidth, width)
+		for row := 0; row < min(oldHeight, height); row++ {
+			copy(pix[row*width*4:(row*width+columns)*4], oldPix[row*oldWidth*4:(row*oldWidth+columns)*4])
+		}
+	}
 	frame.width, frame.height = width, height
-	frame.pix = make([]byte, width*height*4)
+	frame.pix = pix
 	frame.sized = true
 	frame.dirty = append(frame.dirty[:0], Rect{0, 0, width, height})
 	frame.mu.Unlock()

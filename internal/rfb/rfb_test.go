@@ -286,6 +286,25 @@ func TestWrongAndMissingPassword(t *testing.T) {
 	}
 }
 
+func TestRefusalWithoutAReasonIsStillAnAuthFailure(t *testing.T) {
+	// Some servers close the connection right after the refused SecurityResult
+	// instead of describing the refusal. The front end must still be asked for
+	// another password, not shown a network error.
+	_, err := connect(t, Config{Password: "wrong"}, func(s *server) {
+		s.write([]byte("RFB 003.008\n"))
+		s.read(12)
+		s.write([]byte{1, 2})
+		s.read(1)
+		s.write(make([]byte, 16)) // challenge
+		s.read(16)                // response
+		s.write(u32(1))           // SecurityResult: refused
+		s.finish()                // no reason follows
+	})
+	if !errors.Is(err, ErrAuthFailed) {
+		t.Fatalf("err = %v, want ErrAuthFailed", err)
+	}
+}
+
 func TestPasswordIsAskedOnTheSameConnection(t *testing.T) {
 	asked := 0
 	client, err := connect(t, Config{AskPassword: func() (string, error) { asked++; return "typed", nil }}, func(s *server) {
@@ -350,6 +369,79 @@ func TestRefusesWhatIsNotRFBAndOversizeDesktops(t *testing.T) {
 	})
 	if !errors.Is(err, ErrProtocol) {
 		t.Fatalf("err = %v, want a refusal of the huge name", err)
+	}
+}
+
+func TestExtendedDesktopSizeResizesTheDesktop(t *testing.T) {
+	// Switching a macOS Space can make the server describe a new monitor
+	// layout with a pseudo-rectangle that has no pixels. Refusing it used to
+	// end the connection, which looked like a frozen picture.
+	sink := &canvas{}
+	client, err := connect(t, Config{}, func(s *server) {
+		s.handshake("008", 1, "", 640, 480)
+		if incremental, _, _ := s.readRequest(); incremental {
+			s.t.Error("the first request must be a full update")
+		}
+		// The rectangle header's width and height are the new framebuffer
+		// size. The body is the size limits, the number of screens and one
+		// 16-byte entry per screen, which a simple viewer skips.
+		layout := make([]byte, 12+16)
+		layout[8] = 1 // one screen
+		binary.BigEndian.PutUint16(layout[20:], 1280)
+		binary.BigEndian.PutUint16(layout[22:], 720)
+		s.write(update(rect(0, 0, 1280, 720, encodingExtendedDesktopSize, layout...)))
+		if incremental, width, height := s.readRequest(); incremental || width != 1280 || height != 720 {
+			s.t.Errorf("request after the layout: incremental=%v %d×%d", incremental, width, height)
+		}
+		s.finish()
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := wait(t, run(client, sink)); err == nil {
+		t.Fatal("Run returned nil after the server hung up")
+	}
+	if sink.width != 1280 || sink.height != 720 {
+		t.Fatalf("desktop = %d×%d, want 1280×720", sink.width, sink.height)
+	}
+	if sink.updates != 0 {
+		t.Fatalf("%d pixel updates arrived from a layout change", sink.updates)
+	}
+}
+
+func TestExtendedDesktopSizeWithoutANewSizeStillAsksForTheWholePicture(t *testing.T) {
+	// A layout change says the server rebuilt its picture, even when the
+	// framebuffer kept its size: servers that then wait for a full request
+	// hang forever if only an incremental one arrives. The server's own
+	// pixels are kept, since Frame.Resize leaves an unchanged picture alone.
+	sink := &canvas{}
+	client, err := connect(t, Config{}, func(s *server) {
+		s.handshake("008", 1, "", 640, 480)
+		if incremental, _, _ := s.readRequest(); incremental {
+			s.t.Error("the first request must be a full update")
+		}
+		s.write(update(rect(0, 0, 1, 1, EncodingRaw, pixels(1, 1, 2, 3)...)))
+		if incremental, _, _ := s.readRequest(); !incremental {
+			s.t.Error("the request after an update must be incremental")
+		}
+		layout := make([]byte, 12+16) // one screen, same size
+		layout[8] = 1
+		binary.BigEndian.PutUint16(layout[20:], 640)
+		binary.BigEndian.PutUint16(layout[22:], 480)
+		s.write(update(rect(0, 0, 640, 480, encodingExtendedDesktopSize, layout...)))
+		if incremental, width, height := s.readRequest(); incremental || width != 640 || height != 480 {
+			s.t.Errorf("request after a layout-only change: incremental=%v %d×%d", incremental, width, height)
+		}
+		s.finish()
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := wait(t, run(client, sink)); err == nil {
+		t.Fatal("Run returned nil after the server hung up")
+	}
+	if sink.width != 640 || sink.height != 480 || sink.updates != 1 {
+		t.Fatalf("desktop = %d×%d after %d updates", sink.width, sink.height, sink.updates)
 	}
 }
 

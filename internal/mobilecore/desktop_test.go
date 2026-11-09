@@ -69,6 +69,34 @@ func TestDesktopFrameSnapshotDelivery(t *testing.T) {
 	if width, height := frame.oversized(); width != 20000 || height != 20000 {
 		t.Fatalf("oversized = %d×%d", width, height)
 	}
+
+	// Real desktops beyond the largest iPad must connect: a 3306×2100 VNC
+	// server is ordinary, not an attack.
+	frame.Resize(3306, 2100)
+	if width, height := frame.oversized(); width != 0 || height != 0 {
+		t.Fatalf("a 3306×2100 desktop was refused as %d×%d", width, height)
+	}
+	if width, height := frame.size(); width != 3306 || height != 2100 {
+		t.Fatalf("size = %d×%d, want 3306×2100", width, height)
+	}
+
+	frame.Resize(5121, 100)
+	if width, height := frame.oversized(); width != 5121 || height != 100 {
+		t.Fatalf("oversized = %d×%d", width, height)
+	}
+}
+
+func TestDesktopSessionBeingClosedIsNotLive(t *testing.T) {
+	// desktop.open must not hand a reopened host the session that desktop.close
+	// is still winding down.
+	d := &desktopSession{phase: desktopConnected}
+	if !d.live() {
+		t.Fatal("a connected session is not live")
+	}
+	d.closed = true
+	if d.live() {
+		t.Fatal("a session being closed is still reported live")
+	}
 }
 
 func TestHostProtocolDefaults(t *testing.T) {

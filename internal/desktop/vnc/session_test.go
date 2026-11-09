@@ -25,7 +25,11 @@ func fakeServer(t *testing.T, conn net.Conn) {
 	init := []byte{0, 4, 0, 2}
 	init = append(init, 32, 24, 0, 1, 0, 255, 0, 255, 0, 255, 16, 8, 0, 0, 0, 0, 0, 0, 0, 4)
 	conn.Write(append(init, "demo"...))
-	io.ReadFull(conn, make([]byte, 20+4+4*6)) // pixel format and six encodings
+	io.ReadFull(conn, make([]byte, 20)) // pixel format
+	// SetEncodings: message type, padding, count, then the encodings it lists.
+	header := make([]byte, 4)
+	io.ReadFull(conn, header)
+	io.ReadFull(conn, make([]byte, 4*int(binary.BigEndian.Uint16(header[2:]))))
 }
 
 func open(t *testing.T, opts desktop.Options) (*Session, net.Conn) {

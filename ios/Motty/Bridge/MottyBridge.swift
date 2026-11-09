@@ -1465,6 +1465,15 @@ final class MottyBridge: ObservableObject, @unchecked Sendable {
         }
     }
 
+    /// Asks the core for a full repaint; the server may have stopped sending
+    /// updates after a screen layout change.
+    func desktopRefresh(desktopID: UInt32) {
+        struct Params: Encodable { let id: UInt32 }
+        queue.async {
+            let _: DeletedResult? = try? self.callSync("desktop.refresh", params: Params(id: desktopID))
+        }
+    }
+
     func desktopActive(desktopID: UInt32, active: Bool) {
         struct Params: Encodable {
             let id: UInt32

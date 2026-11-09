@@ -1353,8 +1353,13 @@ final class MottyBridge: ObservableObject, @unchecked Sendable {
     private func applyDesktopState(_ state: DesktopState) {
         guard !closedDesktopIDs.contains(state.id) || state.state == "closed" else { return }
         setDesktopInputActive(state.id, active: state.isConnected)
-        desktops[state.id] = state
-        if state.state != "password" && state.state != "certificate" {
+        // The status poll repeats the same answer every second. Writing it
+        // anyway wakes every view that watches desktops, which rebuilds the
+        // key bar's menu and drops its scroll position back to the top.
+        if desktops[state.id] != state {
+            desktops[state.id] = state
+        }
+        if state.state != "password" && state.state != "certificate", desktopPrompts[state.id] != nil {
             desktopPrompts[state.id] = nil
         }
     }

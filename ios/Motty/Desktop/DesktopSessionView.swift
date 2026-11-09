@@ -421,6 +421,9 @@ struct DesktopSessionView: View {
             }
         }
         .padding(24)
+        // A card with some presence: the status line alone is too narrow to
+        // look like a dialog.
+        .frame(minWidth: 320)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20))
         .padding()
     }

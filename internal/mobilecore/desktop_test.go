@@ -147,6 +147,7 @@ type vncTestServer struct {
 
 	messages chan vncMessage
 	update   chan []byte
+	accepted chan struct{}
 }
 
 func startVNCTestServer(t *testing.T, password bool) *vncTestServer {
@@ -161,6 +162,7 @@ func startVNCTestServer(t *testing.T, password bool) *vncTestServer {
 		password: password,
 		messages: make(chan vncMessage, 256),
 		update:   make(chan []byte, 4),
+		accepted: make(chan struct{}, 4),
 	}
 	t.Cleanup(func() { listener.Close() })
 	go server.serve()
@@ -168,10 +170,20 @@ func startVNCTestServer(t *testing.T, password bool) *vncTestServer {
 }
 
 func (s *vncTestServer) serve() {
-	conn, err := s.listener.Accept()
-	if err != nil {
-		return
+	for {
+		conn, err := s.listener.Accept()
+		if err != nil {
+			return
+		}
+		select {
+		case s.accepted <- struct{}{}:
+		default:
+		}
+		s.serveConnection(conn)
 	}
+}
+
+func (s *vncTestServer) serveConnection(conn net.Conn) {
 	defer conn.Close()
 	conn.SetDeadline(time.Now().Add(30 * time.Second))
 	conn.Write([]byte("RFB 003.008\n"))
@@ -430,6 +442,77 @@ closed:
 	waitDesktopState(t, app, result.Desktop.ID, desktopClosed)
 }
 
+func TestDesktopVNCRecoversThePictureAfterAPartialFrameStalls(t *testing.T) {
+	server := startVNCTestServer(t, false)
+	app, err := Start(Config{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Close()
+	host := saveDesktopTestHost(t, app, server.port, ProtocolVNC)
+	opened := callApp(t, app, "desktop.open", `{"hostId":`+quoteJSON(host.ID)+`}`)
+	if !opened.OK {
+		t.Fatalf("desktop.open failed: %+v", opened.Error)
+	}
+	var result struct {
+		Desktop desktopState `json:"desktop"`
+	}
+	if err := json.Unmarshal(opened.Result, &result); err != nil {
+		t.Fatal(err)
+	}
+	id := result.Desktop.ID
+	waitDesktopState(t, app, id, desktopConnected)
+	<-server.accepted
+
+	frame := func(color byte) []byte {
+		// One 4×2 raw rectangle, with every byte equal for easy verification.
+		return append([]byte{0, 0, 0, 1, 0, 0, 0, 0, 0, 4, 0, 2, 0, 0, 0, 0}, bytes.Repeat([]byte{color}, 32)...)
+	}
+	version := uint64(0)
+	waitPicture := func(color byte) {
+		t.Helper()
+		buffer := make([]byte, 256)
+		for deadline := time.Now().Add(3 * time.Second); time.Now().Before(deadline); {
+			// Read a complete snapshot: reconnecting can accumulate several
+			// overlapping dirty rectangles before the display polls them.
+			if n := app.DesktopFrame(id, 0, buffer); n >= 72 {
+				next := binary.LittleEndian.Uint64(buffer)
+				if next > version && binary.LittleEndian.Uint32(buffer[16:]) == 1 && bytes.Equal(buffer[40:72], bytes.Repeat([]byte{color}, 32)) {
+					version = next
+					return
+				}
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		t.Fatalf("the phone never received picture %d", color)
+	}
+	server.update <- frame(1)
+	waitPicture(1)
+
+	params := `{"id":` + strconv.Itoa(int(id)) + `,"x":1,"y":1,"dy":2}`
+	if sent := callApp(t, app, "desktop.wheel", params); !sent.OK {
+		t.Fatalf("desktop.wheel failed: %+v", sent.Error)
+	}
+	// The terminal starts answering the scroll but stops one byte short. A
+	// manual refresh still cannot complete this old message; the watchdog
+	// must tear down the connection and the mobile session must replace it.
+	partial := frame(2)
+	server.update <- partial[:len(partial)-1]
+	if refreshed := callApp(t, app, "desktop.refresh", `{"id":`+strconv.Itoa(int(id))+`}`); !refreshed.OK {
+		t.Fatalf("desktop.refresh failed: %+v", refreshed.Error)
+	}
+	select {
+	case <-server.accepted:
+	case <-time.After(15 * time.Second):
+		t.Fatal("a stalled picture did not automatically reconnect")
+	}
+	waitDesktopState(t, app, id, desktopConnected)
+	server.update <- frame(3)
+	waitPicture(3)
+	server.update <- frame(4)
+	waitPicture(4)
+}
+
 func TestDesktopVNCAsksForPasswordAndRecordsTheSession(t *testing.T) {
 	server := startVNCTestServer(t, true)
 	app, err := Start(Config{DataDir: t.TempDir()})
@@ -483,6 +566,71 @@ func TestDesktopVNCAsksForPasswordAndRecordsTheSession(t *testing.T) {
 		}
 		time.Sleep(30 * time.Millisecond)
 	}
+}
+
+func TestDesktopVNCLoginSurvivesStreamFailureAndImmediateReopen(t *testing.T) {
+	server := startVNCTestServer(t, true)
+	app, err := Start(Config{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Close()
+	host := saveDesktopTestHost(t, app, server.port, ProtocolVNC)
+	open := func() uint32 {
+		t.Helper()
+		envelope := callApp(t, app, "desktop.open", `{"hostId":`+quoteJSON(host.ID)+`}`)
+		if !envelope.OK {
+			t.Fatalf("open failed: %+v", envelope.Error)
+		}
+		var result struct {
+			Desktop desktopState `json:"desktop"`
+		}
+		if err := json.Unmarshal(envelope.Result, &result); err != nil {
+			t.Fatal(err)
+		}
+		return result.Desktop.ID
+	}
+	id := open()
+	for attempt := 0; attempt < 3; attempt++ {
+		state := waitDesktopState(t, app, id, desktopPassword)
+		if state.Attempt != 1 {
+			t.Fatalf("new connection reused an old login attempt: %+v", state)
+		}
+		event := pollEvent(t, app, "desktop.prompt")
+		if event["desktopId"] != float64(id) || event["kind"] != "password" {
+			t.Fatalf("wrong reconnect prompt: %+v", event)
+		}
+		answer := callApp(t, app, "desktop.answer", `{"id":`+strconv.Itoa(int(id))+`,"kind":"password","value":"secret","save":false}`)
+		if !answer.OK {
+			t.Fatalf("reconnect login failed: %+v", answer.Error)
+		}
+		waitDesktopState(t, app, id, desktopConnected)
+		switch attempt {
+		case 0:
+			// A broken decoder stream must reconnect and ask again rather
+			// than reusing an already-answered login prompt.
+			server.update <- []byte{127}
+		case 1:
+			closed := callApp(t, app, "desktop.close", `{"id":`+strconv.Itoa(int(id))+`}`)
+			if !closed.OK {
+				t.Fatalf("close failed: %+v", closed.Error)
+			}
+			previous := id
+			id = open() // immediately, before the old state finishes closing
+			if id == previous {
+				t.Fatal("reopen returned the broken connection")
+			}
+		}
+	}
+	server.update <- append([]byte{0, 0, 0, 1, 0, 0, 0, 0, 0, 4, 0, 2, 0, 0, 0, 0}, bytes.Repeat([]byte{9}, 32)...)
+	buffer := make([]byte, 256)
+	for deadline := time.Now().Add(3 * time.Second); time.Now().Before(deadline); {
+		if n := app.DesktopFrame(id, 0, buffer); n >= 72 && bytes.Equal(buffer[40:72], bytes.Repeat([]byte{9}, 32)) {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("login succeeded but the new desktop picture never arrived")
 }
 
 func TestDesktopVNCUsesASavedPasswordWithoutAsking(t *testing.T) {

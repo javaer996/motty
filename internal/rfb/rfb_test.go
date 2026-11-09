@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -383,12 +384,12 @@ func TestExtendedDesktopSizeResizesTheDesktop(t *testing.T) {
 			s.t.Error("the first request must be a full update")
 		}
 		// The rectangle header's width and height are the new framebuffer
-		// size. The body is the size limits, the number of screens and one
+		// size. The body is the screen count, three padding bytes and one
 		// 16-byte entry per screen, which a simple viewer skips.
-		layout := make([]byte, 12+16)
-		layout[8] = 1 // one screen
-		binary.BigEndian.PutUint16(layout[20:], 1280)
-		binary.BigEndian.PutUint16(layout[22:], 720)
+		layout := make([]byte, 4+16)
+		layout[0] = 1 // one screen
+		binary.BigEndian.PutUint16(layout[12:], 1280)
+		binary.BigEndian.PutUint16(layout[14:], 720)
 		s.write(update(rect(0, 0, 1280, 720, encodingExtendedDesktopSize, layout...)))
 		if incremental, width, height := s.readRequest(); incremental || width != 1280 || height != 720 {
 			s.t.Errorf("request after the layout: incremental=%v %d×%d", incremental, width, height)
@@ -424,10 +425,10 @@ func TestExtendedDesktopSizeWithoutANewSizeStillAsksForTheWholePicture(t *testin
 		if incremental, _, _ := s.readRequest(); !incremental {
 			s.t.Error("the request after an update must be incremental")
 		}
-		layout := make([]byte, 12+16) // one screen, same size
-		layout[8] = 1
-		binary.BigEndian.PutUint16(layout[20:], 640)
-		binary.BigEndian.PutUint16(layout[22:], 480)
+		layout := make([]byte, 4+16) // one screen, same size
+		layout[0] = 1
+		binary.BigEndian.PutUint16(layout[12:], 640)
+		binary.BigEndian.PutUint16(layout[14:], 480)
 		s.write(update(rect(0, 0, 640, 480, encodingExtendedDesktopSize, layout...)))
 		if incremental, width, height := s.readRequest(); incremental || width != 640 || height != 480 {
 			s.t.Errorf("request after a layout-only change: incremental=%v %d×%d", incremental, width, height)
@@ -442,6 +443,50 @@ func TestExtendedDesktopSizeWithoutANewSizeStillAsksForTheWholePicture(t *testin
 	}
 	if sink.width != 640 || sink.height != 480 || sink.updates != 1 {
 		t.Fatalf("desktop = %d×%d after %d updates", sink.width, sink.height, sink.updates)
+	}
+}
+
+func TestRepeatedDesktopLayoutChangesKeepReceivingPixels(t *testing.T) {
+	for _, screens := range []int{0, 1, 2} {
+		t.Run(strconv.Itoa(screens)+" screens", func(t *testing.T) {
+			sink := &canvas{}
+			client, err := connect(t, Config{}, func(s *server) {
+				s.handshake("008", 1, "", 640, 480)
+				s.readRequest()
+				for change := 1; change <= 4; change++ {
+					layout := append([]byte{byte(screens), 0, 0, 0}, make([]byte, screens*16)...)
+					for screen := range screens {
+						entry := layout[4+screen*16:]
+						binary.BigEndian.PutUint32(entry, uint32(screen+1))
+						binary.BigEndian.PutUint16(entry[8:], 640)
+						binary.BigEndian.PutUint16(entry[10:], 480)
+					}
+					// Pixels follow the layout in the same update. Reading even
+					// one extra byte of layout corrupts the next rectangle header.
+					s.write(update(
+						rect(0, 0, 640, 480, encodingExtendedDesktopSize, layout...),
+						rect(0, 0, 1, 1, EncodingRaw, pixels(1, byte(change), 2, 3)...),
+					))
+					if incremental, w, h := s.readRequest(); incremental || w != 640 || h != 480 {
+						s.t.Errorf("layout %d: incremental=%v %d×%d", change, incremental, w, h)
+					}
+					// A full repaint and the next incremental update must both
+					// still be decoded after every desktop switch.
+					s.write(update(rect(1, 0, 1, 1, EncodingRaw, pixels(1, byte(change), 4, 5)...)))
+					if incremental, _, _ := s.readRequest(); !incremental {
+						s.t.Error("pixel update did not resume incremental requests")
+					}
+				}
+				s.finish()
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			wait(t, run(client, sink))
+			if sink.updates != 8 || sink.at(0, 0) != [3]byte{4, 2, 3} || sink.at(1, 0) != [3]byte{4, 4, 5} {
+				t.Fatalf("picture stopped updating: %d updates, pixels %v %v", sink.updates, sink.at(0, 0), sink.at(1, 0))
+			}
+		})
 	}
 }
 

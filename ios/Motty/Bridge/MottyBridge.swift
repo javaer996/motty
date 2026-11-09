@@ -1,8 +1,8 @@
 import Foundation
 import UIKit
 
-/// The Swift side of the C ABI. All calls into Go run on one serial queue, so
-/// the Go core never sees overlapping control calls from this side. The
+/// The Swift side of the C ABI. Control calls and desktop input use separate
+/// queues so a blocked network write cannot hide login or disconnect state. The
 /// published state is only touched on the main queue; `@unchecked Sendable`
 /// acknowledges that split to the compiler.
 final class MottyBridge: ObservableObject, @unchecked Sendable {
@@ -20,6 +20,24 @@ final class MottyBridge: ObservableObject, @unchecked Sendable {
     /// SFTP calls may wait on a slow server. Keeping them off `queue` means
     /// terminal input and event polling keep flowing while a directory loads.
     private let filesQueue = DispatchQueue(label: "dev.motty.files", qos: .userInitiated)
+    private let desktopInputQueue = DispatchQueue(label: "dev.motty.desktop.input", qos: .userInitiated)
+    private let desktopInputLock = NSLock()
+    private struct QueuedDesktopInput {
+        let id: UInt32
+        let epoch: UInt64
+        let method: String
+        var params: any Encodable
+        var createdAt: TimeInterval
+        let isMotion: Bool
+    }
+    private var pendingDesktopInput: [QueuedDesktopInput] = []
+    private var desktopInputEpochs: [UInt32: UInt64] = [:]
+    private var disabledDesktopInput: Set<UInt32> = []
+    private var desktopQueuedButtons: [UInt32: UInt8] = [:]
+    private var desktopInputDraining = false
+    // Main queue only. Late state events from a closed connection cannot
+    // revive its surface or overwrite a freshly opened login prompt.
+    private var closedDesktopIDs: Set<UInt32> = []
     /// The app's writable core directory. SFTP paths must stay inside it.
     private(set) var dataDirectory: URL?
     private var eventBuffer = [UInt8](repeating: 0, count: 32 * 1024)
@@ -1259,6 +1277,88 @@ final class MottyBridge: ObservableObject, @unchecked Sendable {
 
     // MARK: Remote desktop
 
+    private func setDesktopInputActive(_ id: UInt32, active: Bool) {
+        desktopInputLock.lock()
+        defer { desktopInputLock.unlock() }
+        if active {
+            disabledDesktopInput.remove(id)
+        } else {
+            disabledDesktopInput.insert(id)
+            desktopInputEpochs[id, default: 0] &+= 1
+            pendingDesktopInput.removeAll { $0.id == id }
+            desktopQueuedButtons[id] = nil
+        }
+    }
+
+    private func enqueueDesktopInput(_ method: String, id: UInt32, params: any Encodable) {
+        desktopInputLock.lock()
+        defer { desktopInputLock.unlock() }
+        guard !disabledDesktopInput.contains(id) else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        var isMotion = method == "desktop.wheel"
+        if let pointer = params as? DesktopPointerParams {
+            isMotion = pointer.buttons == desktopQueuedButtons[id, default: 0]
+            desktopQueuedButtons[id] = pointer.buttons
+        }
+        var command = QueuedDesktopInput(
+            id: id, epoch: desktopInputEpochs[id, default: 0], method: method,
+            params: params, createdAt: now, isMotion: isMotion
+        )
+        if let last = pendingDesktopInput.last, last.id == id, last.method == method {
+            if let next = params as? DesktopPointerParams,
+               let previous = last.params as? DesktopPointerParams,
+               command.isMotion, last.isMotion, next.buttons == previous.buttons {
+                pendingDesktopInput.removeLast()
+            } else if let next = params as? DesktopWheelParams,
+                      let previous = last.params as? DesktopWheelParams,
+                      next.x == previous.x, next.y == previous.y, next.buttons == previous.buttons,
+                      next.dx * previous.dx >= 0, next.dy * previous.dy >= 0,
+                      abs(next.dx + previous.dx) <= 10, abs(next.dy + previous.dy) <= 10 {
+                command.params = DesktopWheelParams(
+                    id: id, x: next.x, y: next.y, dx: next.dx + previous.dx,
+                    dy: next.dy + previous.dy, buttons: next.buttons
+                )
+                pendingDesktopInput.removeLast()
+            }
+        }
+        // Motion loses its meaning once the connection falls behind. Keys
+        // keep their press/release ordering; mouse traffic has a bounded queue.
+        if command.isMotion {
+            pendingDesktopInput.removeAll { $0.isMotion && now - $0.createdAt > 0.25 }
+            if pendingDesktopInput.filter({ $0.isMotion }).count >= 32 { return }
+        }
+        pendingDesktopInput.append(command)
+        guard !desktopInputDraining else { return }
+        desktopInputDraining = true
+        desktopInputQueue.async { self.drainDesktopInput() }
+    }
+
+    private func drainDesktopInput() {
+        while true {
+            desktopInputLock.lock()
+            guard !pendingDesktopInput.isEmpty else {
+                desktopInputDraining = false
+                desktopInputLock.unlock()
+                return
+            }
+            let command = pendingDesktopInput.removeFirst()
+            let current = desktopInputEpochs[command.id, default: 0]
+            desktopInputLock.unlock()
+            guard current == command.epoch,
+                  !command.isMotion || ProcessInfo.processInfo.systemUptime - command.createdAt <= 0.25 else { continue }
+            let _: DeletedResult? = try? callSync(command.method, params: command.params)
+        }
+    }
+
+    private func applyDesktopState(_ state: DesktopState) {
+        guard !closedDesktopIDs.contains(state.id) || state.state == "closed" else { return }
+        setDesktopInputActive(state.id, active: state.isConnected)
+        desktops[state.id] = state
+        if state.state != "password" && state.state != "certificate" {
+            desktopPrompts[state.id] = nil
+        }
+    }
+
     @Published private(set) var desktops: [UInt32: DesktopState] = [:]
     @Published private(set) var desktopPrompts: [UInt32: DesktopPrompt] = [:]
     @Published private(set) var desktopClipboard: [UInt32: String] = [:]
@@ -1279,7 +1379,7 @@ final class MottyBridge: ObservableObject, @unchecked Sendable {
                         params: DesktopOpenParams(hostId: host.id, width: width, height: height, scale: scale)
                     )
                     DispatchQueue.main.async {
-                        self.desktops[result.desktop.id] = result.desktop
+                        self.applyDesktopState(result.desktop)
                         continuation.resume(returning: result.desktop)
                     }
                 } catch {
@@ -1291,6 +1391,8 @@ final class MottyBridge: ObservableObject, @unchecked Sendable {
 
     func closeDesktop(_ id: UInt32) {
         struct Params: Encodable { let id: UInt32 }
+        closedDesktopIDs.insert(id)
+        setDesktopInputActive(id, active: false)
         queue.async {
             let _: DeletedResult? = try? self.callSync("desktop.close", params: Params(id: id))
             DispatchQueue.main.async {
@@ -1313,7 +1415,7 @@ final class MottyBridge: ObservableObject, @unchecked Sendable {
                 let result: DesktopsResult = try self.callSync("desktop.status", params: Params(id: id))
                 DispatchQueue.main.async {
                     if let state = result.desktops.first {
-                        self.desktops[id] = state
+                        self.applyDesktopState(state)
                         completion(.success(state))
                     } else {
                         completion(.failure(RPCError(code: "not_found", message: "the remote desktop is gone")))
@@ -1333,12 +1435,8 @@ final class MottyBridge: ObservableObject, @unchecked Sendable {
     }
 
     func desktopPointer(desktopID: UInt32, x: Int, y: Int, buttons: UInt8) {
-        queue.async {
-            let _: DeletedResult? = try? self.callSync(
-                "desktop.pointer",
-                params: DesktopPointerParams(id: desktopID, x: x, y: y, buttons: buttons)
-            )
-        }
+        enqueueDesktopInput("desktop.pointer", id: desktopID,
+                            params: DesktopPointerParams(id: desktopID, x: x, y: y, buttons: buttons))
     }
 
     struct DesktopWheelParams: Encodable {
@@ -1351,12 +1449,8 @@ final class MottyBridge: ObservableObject, @unchecked Sendable {
     }
 
     func desktopWheel(desktopID: UInt32, x: Int, y: Int, dx: Int, dy: Int, buttons: UInt8 = 0) {
-        queue.async {
-            let _: DeletedResult? = try? self.callSync(
-                "desktop.wheel",
-                params: DesktopWheelParams(id: desktopID, x: x, y: y, dx: dx, dy: dy, buttons: buttons)
-            )
-        }
+        enqueueDesktopInput("desktop.wheel", id: desktopID,
+                            params: DesktopWheelParams(id: desktopID, x: x, y: y, dx: dx, dy: dy, buttons: buttons))
     }
 
     struct DesktopKeyParams: Encodable {
@@ -1376,19 +1470,15 @@ final class MottyBridge: ObservableObject, @unchecked Sendable {
         down: Bool,
         repeat isRepeat: Bool = false
     ) {
-        queue.async {
-            let _: DeletedResult? = try? self.callSync(
-                "desktop.key",
-                params: DesktopKeyParams(
+        enqueueDesktopInput("desktop.key", id: desktopID,
+                            params: DesktopKeyParams(
                     id: desktopID,
                     key: key,
                     rune: rune,
                     typed: typed,
                     down: down,
                     repeat: isRepeat
-                )
-            )
-        }
+                ))
     }
 
     struct DesktopTextParams: Encodable {
@@ -1398,21 +1488,13 @@ final class MottyBridge: ObservableObject, @unchecked Sendable {
 
     func desktopText(desktopID: UInt32, text: String) {
         guard !text.isEmpty else { return }
-        queue.async {
-            let _: DeletedResult? = try? self.callSync(
-                "desktop.text",
-                params: DesktopTextParams(id: desktopID, text: text)
-            )
-        }
+        enqueueDesktopInput("desktop.text", id: desktopID,
+                            params: DesktopTextParams(id: desktopID, text: text))
     }
 
     func desktopSetClipboard(desktopID: UInt32, text: String) {
-        queue.async {
-            let _: DeletedResult? = try? self.callSync(
-                "desktop.clipboard.set",
-                params: DesktopTextParams(id: desktopID, text: text)
-            )
-        }
+        enqueueDesktopInput("desktop.clipboard.set", id: desktopID,
+                            params: DesktopTextParams(id: desktopID, text: text))
     }
 
     func desktopGetClipboard(
@@ -1441,12 +1523,16 @@ final class MottyBridge: ObservableObject, @unchecked Sendable {
 
     func desktopAnswer(desktopID: UInt32, kind: String, value: String = "", accept: Bool = false, save: Bool = false) {
         queue.async {
-            let _: DeletedResult? = try? self.callSync(
-                "desktop.answer",
-                params: DesktopAnswerParams(id: desktopID, kind: kind, value: value, accept: accept, save: save)
-            )
+            do {
+                let _: DeletedResult = try self.callSync(
+                    "desktop.answer",
+                    params: DesktopAnswerParams(id: desktopID, kind: kind, value: value, accept: accept, save: save)
+                )
+                DispatchQueue.main.async { self.desktopPrompts[desktopID] = nil }
+            } catch {
+                self.publish(error)
+            }
         }
-        DispatchQueue.main.async { self.desktopPrompts[desktopID] = nil }
     }
 
     struct DesktopResizeParams: Encodable {
@@ -1490,10 +1576,7 @@ final class MottyBridge: ObservableObject, @unchecked Sendable {
     private func handleDesktopEvent(_ event: CoreEvent) {
         if event.type == "desktop.state", let state = event.desktop {
             DispatchQueue.main.async {
-                self.desktops[state.id] = state
-                if state.state == "failed" || state.state == "closed" || state.state == "connected" {
-                    self.desktopPrompts[state.id] = nil
-                }
+                self.applyDesktopState(state)
             }
             return
         }
@@ -1510,7 +1593,11 @@ final class MottyBridge: ObservableObject, @unchecked Sendable {
                 known: event.known,
                 changed: event.changed
             )
-            DispatchQueue.main.async { self.desktopPrompts[id] = prompt }
+            DispatchQueue.main.async {
+                guard !self.closedDesktopIDs.contains(id),
+                      self.desktops[id]?.state == kind.rawValue else { return }
+                self.desktopPrompts[id] = prompt
+            }
         case "desktop.clipboard":
             guard let text = event.text, !text.isEmpty else { return }
             DispatchQueue.main.async { self.desktopClipboard[id] = text }

@@ -22,14 +22,20 @@ struct DesktopSurface: UIViewRepresentable {
     let desktopID: UInt32
     let handle: DesktopSurfaceHandle
     let bridge: MottyBridge
+    var viewportInsets = UIEdgeInsets.zero
     /// A three-finger tap asks for the controls, which stay out of the picture
     /// the rest of the time so the remote desktop reaches the screen's edge.
     var onToggleChrome: () -> Void = {}
+    /// Remote scrolling releases key-bar modifiers left selected by a
+    /// preceding shortcut, so a Space switch cannot turn into Ctrl+wheel.
+    var onBeginScroll: () -> Void = {}
 
     func makeUIView(context: Context) -> DesktopSurfaceView {
         let view = DesktopSurfaceView()
         view.desktopID = desktopID
+        view.viewportInsets = viewportInsets
         view.onToggleChrome = onToggleChrome
+        view.onBeginScroll = onBeginScroll
         view.onPointer = { [weak view, weak bridge] x, y, buttons in
             guard let id = view?.desktopID else { return }
             bridge?.desktopPointer(desktopID: id, x: x, y: y, buttons: buttons)
@@ -54,7 +60,9 @@ struct DesktopSurface: UIViewRepresentable {
         if view.desktopID != desktopID {
             view.desktopID = desktopID
         }
+        view.viewportInsets = viewportInsets
         view.onToggleChrome = onToggleChrome
+        view.onBeginScroll = onBeginScroll
         handle.view = view
     }
 }
@@ -62,10 +70,22 @@ struct DesktopSurface: UIViewRepresentable {
 /// One remote desktop surface: draws BGRA frames, translates touches and keys,
 /// and talks to the core through closures.
 final class DesktopSurfaceView: UIView, UIKeyInput, UIGestureRecognizerDelegate {
+    /// Space covered by system cutouts or visible control rails. A zoomed
+    /// picture must be able to bring each edge inside this usable viewport.
+    var viewportInsets = UIEdgeInsets.zero {
+        didSet {
+            guard oldValue != viewportInsets else { return }
+            pictureOffset = clampedOffset(pictureOffset, size: zoomedSize)
+            setNeedsDisplay()
+        }
+    }
     var desktopID: UInt32 = 0 {
         didSet {
             guard oldValue != desktopID else { return }
             resetPicture()
+            // An unknown/closed id stops the display link. SwiftUI may reuse
+            // this view on reconnect, so a new id must restart frame polling.
+            if window != nil { startDisplayLink() }
         }
     }
 
@@ -74,6 +94,7 @@ final class DesktopSurfaceView: UIView, UIKeyInput, UIGestureRecognizerDelegate 
     var onKey: ((String?, String?, String?, Bool, Bool) -> Void)?
     var onText: ((String) -> Void)?
     var onToggleChrome: (() -> Void)?
+    var onBeginScroll: (() -> Void)?
 
     // MARK: Picture state
 
@@ -96,6 +117,14 @@ final class DesktopSurfaceView: UIView, UIKeyInput, UIGestureRecognizerDelegate 
     private var softwareKeyboard = false
     private var heldButtons: UInt8 = 0
     private var scrollRemainder = CGPoint.zero
+    private var scrollAnchor: (x: Int, y: Int)?
+    private var scrollVelocity = CGPoint.zero
+    private var lastScrollTick: CFTimeInterval = 0
+    private static let pointsPerWheelNotch: CGFloat = 3
+    private enum TwoFingerAction { case undecided, scroll, zoom }
+    private var twoFingerAction = TwoFingerAction.undecided
+    private var remoteScrollGesture: UIPanGestureRecognizer?
+    private var zoomGesture: UIPinchGestureRecognizer?
     private var downKeys = Set<UIKeyboardHIDUsage>()
     /// Modifier keys this view has told the remote are down but not released.
     private var heldModifiers: UIKeyModifierFlags = []
@@ -118,6 +147,11 @@ final class DesktopSurfaceView: UIView, UIKeyInput, UIGestureRecognizerDelegate 
     override var canBecomeFirstResponder: Bool { true }
     override var inputView: UIView? {
         softwareKeyboard ? nil : Self.emptyInput
+    }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        cancelRemoteScroll()
+        super.touchesBegan(touches, with: event)
     }
 
     // MARK: Software keyboard
@@ -155,6 +189,7 @@ final class DesktopSurfaceView: UIView, UIKeyInput, UIGestureRecognizerDelegate 
     }
 
     func stop() {
+        cancelRemoteScroll()
         displayLink?.invalidate()
         displayLink = nil
         releaseHeldModifiers()
@@ -170,6 +205,9 @@ final class DesktopSurfaceView: UIView, UIKeyInput, UIGestureRecognizerDelegate 
     }
 
     @objc private func tick(_ link: CADisplayLink) {
+        let elapsed = lastScrollTick == 0 ? 0 : min(link.timestamp - lastScrollTick, 1.0 / 15.0)
+        lastScrollTick = link.timestamp
+        if elapsed > 0 { advanceScrollMomentum(elapsed) }
         // 30 Hz is plenty for a desktop; the core coalesces the rest.
         guard link.timestamp - lastPoll >= 1.0 / 30.0 else { return }
         lastPoll = link.timestamp
@@ -177,6 +215,7 @@ final class DesktopSurfaceView: UIView, UIKeyInput, UIGestureRecognizerDelegate 
     }
 
     private func resetPicture() {
+        cancelRemoteScroll()
         frameVersion = 0
         pixels = Data()
         pictureWidth = 0
@@ -261,9 +300,10 @@ final class DesktopSurfaceView: UIView, UIKeyInput, UIGestureRecognizerDelegate 
         guard zoom > 1 else { return fitted }
         let size = zoomedSize
         let offset = clampedOffset(pictureOffset, size: size)
+        let viewport = visibleViewport
         return CGRect(
-            x: bounds.midX - size.width / 2 + offset.x,
-            y: bounds.midY - size.height / 2 + offset.y,
+            x: viewport.midX - size.width / 2 + offset.x,
+            y: viewport.midY - size.height / 2 + offset.y,
             width: size.width,
             height: size.height
         )
@@ -276,20 +316,32 @@ final class DesktopSurfaceView: UIView, UIKeyInput, UIGestureRecognizerDelegate 
         return CGSize(width: fitted.width * zoom, height: fitted.height * zoom)
     }
 
-    /// Keeps a zoomed picture covering the view: it may not be dragged away
-    /// from the edge and leave a gap.
+    private var visibleViewport: CGRect {
+        let inset = UIEdgeInsets(
+            top: max(safeAreaInsets.top, viewportInsets.top),
+            left: max(safeAreaInsets.left, viewportInsets.left),
+            bottom: max(safeAreaInsets.bottom, viewportInsets.bottom),
+            right: max(safeAreaInsets.right, viewportInsets.right)
+        )
+        let viewport = bounds.inset(by: inset)
+        return viewport.width > 0 && viewport.height > 0 ? viewport : bounds
+    }
+
+    /// Clamp against the usable viewport so cutouts and control bars cannot
+    /// permanently cover the first or last pixels of a magnified desktop.
     private func clampedOffset(_ offset: CGPoint, size: CGSize) -> CGPoint {
+        let viewport = visibleViewport
         var result = offset
-        if size.width <= bounds.width {
+        if size.width <= viewport.width {
             result.x = 0
         } else {
-            let limit = (size.width - bounds.width) / 2
+            let limit = (size.width - viewport.width) / 2
             result.x = min(max(result.x, -limit), limit)
         }
-        if size.height <= bounds.height {
+        if size.height <= viewport.height {
             result.y = 0
         } else {
-            let limit = (size.height - bounds.height) / 2
+            let limit = (size.height - viewport.height) / 2
             result.y = min(max(result.y, -limit), limit)
         }
         return result
@@ -349,6 +401,13 @@ final class DesktopSurfaceView: UIView, UIKeyInput, UIGestureRecognizerDelegate 
 
     override func layoutSubviews() {
         super.layoutSubviews()
+        pictureOffset = clampedOffset(pictureOffset, size: zoomedSize)
+        setNeedsDisplay()
+    }
+
+    override func safeAreaInsetsDidChange() {
+        super.safeAreaInsetsDidChange()
+        pictureOffset = clampedOffset(pictureOffset, size: zoomedSize)
         setNeedsDisplay()
     }
 
@@ -389,6 +448,7 @@ final class DesktopSurfaceView: UIView, UIKeyInput, UIGestureRecognizerDelegate 
     }
 
     private func click(at point: CGPoint, button: UInt8) {
+        cancelRemoteScroll()
         guard let (x, y) = pixelPoint(point) else { return }
         onPointer?(x, y, button)
         onPointer?(x, y, 0)
@@ -424,16 +484,27 @@ final class DesktopSurfaceView: UIView, UIKeyInput, UIGestureRecognizerDelegate 
         scroll.maximumNumberOfTouches = 2
         scroll.delegate = self
         addGestureRecognizer(scroll)
+        remoteScrollGesture = scroll
+        rightTap.require(toFail: scroll)
 
         let pinch = UIPinchGestureRecognizer(target: self, action: #selector(handlePinch(_:)))
         pinch.delegate = self
         addGestureRecognizer(pinch)
+        zoomGesture = pinch
+
+        // Two fingers always scroll the remote, including while zoomed in.
+        // Three fingers move the local viewport without sending remote input.
+        let viewportPan = UIPanGestureRecognizer(target: self, action: #selector(handleViewportPan(_:)))
+        viewportPan.minimumNumberOfTouches = 3
+        viewportPan.maximumNumberOfTouches = 3
+        addGestureRecognizer(viewportPan)
 
         // The chrome stays hidden while the picture is full screen; three
         // fingers bring back the close button and the key bar.
         let controlsTap = UITapGestureRecognizer(target: self, action: #selector(handleControlsTap(_:)))
         controlsTap.numberOfTouchesRequired = 3
         addGestureRecognizer(controlsTap)
+        controlsTap.require(toFail: viewportPan)
 
         let hover = UIHoverGestureRecognizer(target: self, action: #selector(handleHover(_:)))
         addGestureRecognizer(hover)
@@ -443,16 +514,14 @@ final class DesktopSurfaceView: UIView, UIKeyInput, UIGestureRecognizerDelegate 
         onToggleChrome?()
     }
 
-    /// A pinching pair of fingers usually also drags a little. Without this the
-    /// pan never starts, and a zoomed picture cannot be moved at all.
+    /// Let the two-finger recognizers classify the movement together. Once a
+    /// wheel notch or a deliberate pinch wins, keep that action until release.
     func gestureRecognizer(
         _ gestureRecognizer: UIGestureRecognizer,
         shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
     ) -> Bool {
-        let both = [gestureRecognizer, other]
-        let pinches = both.contains { $0 is UIPinchGestureRecognizer }
-        let pans = both.contains { $0 is UIPanGestureRecognizer }
-        return pinches && pans
+        (gestureRecognizer === remoteScrollGesture && other === zoomGesture)
+            || (gestureRecognizer === zoomGesture && other === remoteScrollGesture)
     }
 
     @objc private func handleTap(_ gesture: UITapGestureRecognizer) {
@@ -472,6 +541,7 @@ final class DesktopSurfaceView: UIView, UIKeyInput, UIGestureRecognizerDelegate 
         let point = gesture.location(in: self)
         switch gesture.state {
         case .began:
+            cancelRemoteScroll()
             guard let (x, y) = pixelPoint(point) else { return }
             heldButtons = 4
             onPointer?(x, y, heldButtons)
@@ -490,48 +560,138 @@ final class DesktopSurfaceView: UIView, UIKeyInput, UIGestureRecognizerDelegate 
     }
 
     @objc private func handleDrag(_ gesture: UIPanGestureRecognizer) {
+        if gesture.state == .began {
+            cancelRemoteScroll()
+        }
         movePointer(to: gesture.location(in: self), buttons: heldButtons, atEdge: true)
     }
 
+    private func beginTwoFingerGesture(alongside other: UIGestureRecognizer?) {
+        // Both recognizers belong to one touch sequence. Keep the winning
+        // action through either recognizer's end so its tail cannot become a
+        // scroll after a pinch, or a zoom after a scroll.
+        if other?.state != .began && other?.state != .changed {
+            twoFingerAction = .undecided
+            scrollRemainder = .zero
+        }
+    }
+
     @objc private func handleScroll(_ gesture: UIPanGestureRecognizer) {
-        let translation = gesture.translation(in: self)
-        gesture.setTranslation(.zero, in: self)
-        if zoom > 1 {
-            // Zoomed in, two fingers move the picture itself: the part under
-            // the fingers stays under them, and the remote does not scroll.
-            pictureOffset = clampedOffset(
-                CGPoint(x: pictureOffset.x + translation.x, y: pictureOffset.y + translation.y),
-                size: zoomedSize
+        switch gesture.state {
+        case .began:
+            cancelRemoteScroll()
+            beginTwoFingerGesture(alongside: zoomGesture)
+            let location = gesture.location(in: self)
+            let initialTravel = gesture.translation(in: self)
+            // Recognition starts after the fingers have already moved. Aim
+            // every wheel at where they started, even if the fingers later
+            // leave a small terminal window or the remote picture altogether.
+            let start = CGPoint(x: location.x - initialTravel.x, y: location.y - initialTravel.y)
+            scrollAnchor = pixelPoint(start) ?? pixelPointAtEdge(start)
+            if let point = scrollAnchor {
+                onBeginScroll?()
+                onPointer?(point.x, point.y, heldButtons)
+            }
+        case .changed:
+            break
+        case .ended:
+            guard twoFingerAction == .scroll, scrollAnchor != nil else {
+                cancelRemoteScroll()
+                return
+            }
+            sendScrollTravel(gesture.translation(in: self))
+            gesture.setTranslation(.zero, in: self)
+            let velocity = gesture.velocity(in: self)
+            scrollVelocity = CGPoint(
+                x: min(max(velocity.x, -1400), 1400),
+                y: min(max(velocity.y, -1400), 1400)
             )
-            setNeedsDisplay()
+            if hypot(scrollVelocity.x, scrollVelocity.y) < 80 {
+                scrollVelocity = .zero
+                if abs(scrollRemainder.x) < Self.pointsPerWheelNotch,
+                   abs(scrollRemainder.y) < Self.pointsPerWheelNotch {
+                    cancelRemoteScroll()
+                }
+            }
+            return
+        case .cancelled, .failed:
+            cancelRemoteScroll()
+            return
+        default:
             return
         }
+        let translation = gesture.translation(in: self)
+        gesture.setTranslation(.zero, in: self)
+        guard twoFingerAction != .zoom else { return }
+        sendScrollTravel(translation)
+    }
+
+    private func sendScrollTravel(_ translation: CGPoint) {
+        guard let point = scrollAnchor else { return }
         scrollRemainder.x += translation.x
         scrollRemainder.y += translation.y
-        let notch: CGFloat = 40
-        let dx = Int(scrollRemainder.x / notch)
-        let dy = Int(-scrollRemainder.y / notch)
+        let notch = Self.pointsPerWheelNotch
+        // Match the backend's per-message bound; keep excess travel for the
+        // next tick rather than silently throwing away a fast swipe.
+        let dx = min(max(Int(scrollRemainder.x / notch), -10), 10)
+        let dy = min(max(Int(-scrollRemainder.y / notch), -10), 10)
         guard dx != 0 || dy != 0 else { return }
         scrollRemainder.x -= CGFloat(dx) * notch
         scrollRemainder.y += CGFloat(dy) * notch
-        // A wheel sent while the fingers are on the black margin still has to
-        // reach the remote: aim it at the nearest picture edge.
-        guard let point = pixelPoint(gesture.location(in: self)) ?? pixelPointAtEdge(gesture.location(in: self)) else { return }
-        onWheel?(point.0, point.1, dx, dy)
+        twoFingerAction = .scroll
+        onWheel?(point.x, point.y, dx, dy)
+    }
+
+    private func cancelRemoteScroll() {
+        scrollVelocity = .zero
+        scrollRemainder = .zero
+        scrollAnchor = nil
+    }
+
+    private func advanceScrollMomentum(_ elapsed: CFTimeInterval) {
+        guard scrollAnchor != nil, twoFingerAction == .scroll else { return }
+        if scrollVelocity != .zero {
+            let decay = CGFloat(exp(-elapsed / 0.22))
+            let travelTime = CGFloat(0.22) * (1 - decay)
+            sendScrollTravel(CGPoint(x: scrollVelocity.x * travelTime, y: scrollVelocity.y * travelTime))
+            scrollVelocity.x *= decay
+            scrollVelocity.y *= decay
+            if hypot(scrollVelocity.x, scrollVelocity.y) < 20 { scrollVelocity = .zero }
+        } else {
+            sendScrollTravel(.zero)
+        }
+    }
+
+    @objc private func handleViewportPan(_ gesture: UIPanGestureRecognizer) {
+        guard gesture.state == .began || gesture.state == .changed else { return }
+        cancelRemoteScroll()
+        let translation = gesture.translation(in: self)
+        gesture.setTranslation(.zero, in: self)
+        guard zoom > 1 else { return }
+        pictureOffset = clampedOffset(
+            CGPoint(x: pictureOffset.x + translation.x, y: pictureOffset.y + translation.y),
+            size: zoomedSize
+        )
+        setNeedsDisplay()
     }
 
     @objc private func handlePinch(_ gesture: UIPinchGestureRecognizer) {
         switch gesture.state {
         case .began:
+            scrollVelocity = .zero
+            beginTwoFingerGesture(alongside: remoteScrollGesture)
             pinchStartZoom = zoom
         case .changed:
+            guard twoFingerAction != .scroll else { return }
             let target = min(max(pinchStartZoom * gesture.scale, 1), 4)
             // Two fingers scrolling together wobble the scale a little. A
             // pinch must move it well away from where it was, or a scroll
             // would quietly zoom in and turn into a pan.
-            guard abs(target - pinchStartZoom) > 0.15 else { return }
+            guard twoFingerAction == .zoom || abs(gesture.scale - 1) > 0.15 else { return }
             let oldRect = pictureRect
             guard oldRect.width > 0, oldRect.height > 0 else { return }
+            twoFingerAction = .zoom
+            cancelRemoteScroll()
             let center = gesture.location(in: self)
             let ratioX = (center.x - oldRect.minX) / oldRect.width
             let ratioY = (center.y - oldRect.minY) / oldRect.height
@@ -541,10 +701,11 @@ final class DesktopSurfaceView: UIView, UIKeyInput, UIGestureRecognizerDelegate 
             } else {
                 // Keep the point between the fingers where it was.
                 let size = zoomedSize
+                let viewport = visibleViewport
                 pictureOffset = clampedOffset(
                     CGPoint(
-                        x: center.x - ratioX * size.width - (bounds.midX - size.width / 2),
-                        y: center.y - ratioY * size.height - (bounds.midY - size.height / 2)
+                        x: center.x - ratioX * size.width - (viewport.midX - size.width / 2),
+                        y: center.y - ratioY * size.height - (viewport.midY - size.height / 2)
                     ),
                     size: size
                 )

@@ -48,11 +48,18 @@ func open(t *testing.T, opts desktop.Options) (*Session, net.Conn) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { clientSide.Close(); serverSide.Close() })
-	go fakeServer(t, serverSide)
+	handshakeDone := make(chan struct{})
+	go func() {
+		fakeServer(t, serverSide)
+		close(handshakeDone)
+	}()
 	session, err := Open(context.Background(), func(context.Context, string, string) (net.Conn, error) { return clientSide, nil }, "x:5900", opts)
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Open can return as soon as its writes enter the TCP buffer. Finish
+	// consuming SetEncodings before the test starts reading the same socket.
+	<-handshakeDone
 	return session, serverSide
 }
 

@@ -6,9 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/bits"
 	"net"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -41,6 +43,8 @@ var (
 	ErrUnsupported = errors.New("rfb: no supported security type")
 	// ErrProtocol means the server broke the protocol or exceeded a limit.
 	ErrProtocol = errors.New("rfb: protocol error")
+	// ErrStalled means a started message or write stopped making progress.
+	ErrStalled = errors.New("rfb: connection stopped making progress")
 )
 
 // ServerError is a refusal the server explained in words.
@@ -134,6 +138,9 @@ type Client struct {
 	timeout       time.Duration
 
 	writeMu sync.Mutex
+	// Keep refreshes, resumed output and decoder-driven requests ordered.
+	requestMu   sync.Mutex
+	requestWake chan struct{}
 
 	mu      sync.Mutex
 	active  bool // the user can see the desktop: ask for updates
@@ -142,11 +149,27 @@ type Client struct {
 	// minInterval and lastRequest slow down what is asked for; kept by mu.
 	minInterval time.Duration
 	lastRequest time.Time
-	// fullRequested is when a full-update request went out and no answer has
-	// started to arrive; kept by mu. A server must answer a full request, so
-	// one that stays unanswered means the stream is out of step or the server
-	// is wedged: no further picture will ever come.
-	fullRequested time.Time
+	// All recovery state is kept by mu. A full request stays outstanding until
+	// a complete framebuffer update arrives, not a bell or clipboard message.
+	fullRequested   time.Time
+	fullSince       time.Time // survives layout-only replies and replacement requests
+	fullProgress    time.Time
+	fullSerial      uint64
+	fullWidth       int
+	fullHeight      int
+	fullRemaining   int
+	fullCoverage    []uint64
+	inputPending    time.Time
+	refreshAt       time.Time
+	refreshUntil    time.Time
+	controlKeys     uint8
+	requestPending  bool
+	fullPending     bool
+	writeStarted    time.Time
+	messageStarted  time.Time
+	receivingPixels bool
+	terminalErr     error
+	lastRead        atomic.Int64
 
 	// decoder state
 	rowBuf  []byte
@@ -166,11 +189,12 @@ func Connect(conn net.Conn, config Config) (*Client, error) {
 	defer conn.SetDeadline(time.Time{})
 	client := &Client{
 		conn:        conn,
-		r:           bufio.NewReaderSize(conn, 64<<10),
 		active:      true,
 		timeout:     timeout,
 		minInterval: config.MinRequestInterval,
+		requestWake: make(chan struct{}, 1),
 	}
+	client.r = bufio.NewReaderSize(progressReader{client}, 64<<10)
 	if err := client.handshake(config); err != nil {
 		return nil, err
 	}
@@ -420,7 +444,20 @@ func printable(data []byte) string {
 func (client *Client) write(message []byte) error {
 	client.writeMu.Lock()
 	defer client.writeMu.Unlock()
-	_, err := client.conn.Write(message)
+	return client.writeLocked(message)
+}
+
+func (client *Client) writeLocked(message []byte) error {
+	client.mu.Lock()
+	client.writeStarted = time.Now()
+	client.mu.Unlock()
+	n, err := client.conn.Write(message)
+	client.mu.Lock()
+	client.writeStarted = time.Time{}
+	client.mu.Unlock()
+	if err == nil && n != len(message) {
+		err = io.ErrShortWrite
+	}
 	return err
 }
 
@@ -443,8 +480,31 @@ func (client *Client) SetActive(active bool) {
 
 // request asks for the desktop to be sent: only what changed when incremental.
 func (client *Client) request(incremental bool) error {
+	if client.requestWake == nil {
+		return client.writeRequest(incremental) // standalone decoder tests
+	}
 	client.mu.Lock()
-	width, height := client.width, client.height
+	client.requestPending = true
+	client.fullPending = client.fullPending || !incremental
+	client.mu.Unlock()
+	select {
+	case client.requestWake <- struct{}{}:
+	default:
+	}
+	return nil
+}
+
+// writeRequest is only called by the request sender. In particular, the read
+// loop must never wait for this write or the writeMu: a server can be writing a
+// large frame before it reads the next request or wheel event.
+func (client *Client) writeRequest(incremental bool) error {
+	client.requestMu.Lock()
+	defer client.requestMu.Unlock()
+	client.mu.Lock()
+	if !incremental && !client.fullRequested.IsZero() {
+		client.mu.Unlock()
+		return nil // another full request is already waiting for its answer
+	}
 	var wait time.Duration
 	if client.minInterval > 0 {
 		wait = time.Until(client.lastRequest.Add(client.minInterval))
@@ -459,6 +519,23 @@ func (client *Client) request(incremental bool) error {
 	if wait > 0 {
 		time.Sleep(wait)
 	}
+	client.writeMu.Lock()
+	defer client.writeMu.Unlock()
+	client.mu.Lock()
+	width, height := client.width, client.height
+	if !incremental {
+		client.fullRequested = time.Now()
+		client.fullSerial++
+		if client.fullSince.IsZero() || width != client.fullWidth || height != client.fullHeight {
+			client.fullWidth, client.fullHeight = width, height
+			client.fullRemaining = width * height
+			clear(client.fullCoverage)
+		}
+		if client.fullSince.IsZero() {
+			client.fullSince = client.fullRequested
+		}
+	}
+	client.mu.Unlock()
 	var flag byte
 	if incremental {
 		flag = 1
@@ -466,15 +543,9 @@ func (client *Client) request(incremental bool) error {
 	message := [10]byte{3, flag}
 	binary.BigEndian.PutUint16(message[6:], uint16(width))
 	binary.BigEndian.PutUint16(message[8:], uint16(height))
-	if err := client.write(message[:]); err != nil {
-		return err
-	}
-	if !incremental {
-		client.mu.Lock()
-		client.fullRequested = time.Now()
-		client.mu.Unlock()
-	}
-	return nil
+	// Arm the deadline before writing: a fast server can finish its response
+	// before Write returns, and must not leave a stale deadline behind.
+	return client.writeLocked(message[:])
 }
 
 // Refresh asks the server for the whole picture, not only what changed. A
@@ -488,27 +559,6 @@ func (client *Client) Refresh() error { return client.request(false) }
 // caller dial again and recover the picture.
 const fullRequestTimeout = 10 * time.Second
 
-// watchFullRequests closes the connection when a full request stays
-// unanswered. It runs until stop is closed or it closes the connection itself.
-func (client *Client) watchFullRequests(stop <-chan struct{}) {
-	ticker := time.NewTicker(time.Second)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-stop:
-			return
-		case <-ticker.C:
-			client.mu.Lock()
-			at := client.fullRequested
-			client.mu.Unlock()
-			if !at.IsZero() && time.Since(at) >= fullRequestTimeout {
-				_ = client.conn.Close()
-				return
-			}
-		}
-	}
-}
-
 // SendPointer reports the pointer at (x, y) of the framebuffer with the buttons
 // held: bit 0 left, 1 middle, 2 right, 3 and 4 wheel up and down, 5 and 6 wheel
 // left and right.
@@ -518,7 +568,11 @@ func (client *Client) SendPointer(x, y int, buttons uint8) error {
 	message[1] = buttons
 	binary.BigEndian.PutUint16(message[2:], uint16(clamp(x, 0, 65535)))
 	binary.BigEndian.PutUint16(message[4:], uint16(clamp(y, 0, 65535)))
-	return client.write(message[:])
+	if err := client.write(message[:]); err != nil {
+		return err
+	}
+	client.noteInput(0, false)
+	return nil
 }
 
 // SendKey presses or releases the key with this X11 keysym.
@@ -529,7 +583,11 @@ func (client *Client) SendKey(keysym uint32, down bool) error {
 		message[1] = 1
 	}
 	binary.BigEndian.PutUint32(message[4:], keysym)
-	return client.write(message[:])
+	if err := client.write(message[:]); err != nil {
+		return err
+	}
+	client.noteInput(keysym, down)
+	return nil
 }
 
 // SendClipboard gives the server text for its clipboard. The protocol carries
@@ -560,15 +618,25 @@ func clamp(value, low, high int) int { return max(low, min(value, high)) }
 
 // Run reads server messages and delivers them to sink until the connection ends
 // or the server breaks the protocol, and returns why. It asks for the first
-// update, and for the next as each is applied, never in a loop of its own.
-func (client *Client) Run(sink Sink) error {
+// update and for the next as each is applied; watchUpdates handles recovery
+// when the server loses incremental damage tracking after a desktop switch.
+func (client *Client) Run(sink Sink) (result error) {
 	sink.Resize(client.width, client.height)
 	client.mu.Lock()
 	client.running = true
 	client.mu.Unlock()
 	stop := make(chan struct{})
-	defer close(stop)
-	go client.watchFullRequests(stop)
+	defer func() {
+		close(stop)
+		client.mu.Lock()
+		client.running = false
+		if client.terminalErr != nil {
+			result = client.terminalErr
+		}
+		client.mu.Unlock()
+	}()
+	go client.sendRequests(stop)
+	go client.watchUpdates(stop)
 	if err := client.request(false); err != nil {
 		return err
 	}
@@ -577,9 +645,8 @@ func (client *Client) Run(sink Sink) error {
 		if err != nil {
 			return err
 		}
-		// An answer has started: whatever was last asked for is being served.
 		client.mu.Lock()
-		client.fullRequested = time.Time{}
+		client.messageStarted = time.Now()
 		client.mu.Unlock()
 		switch kind {
 		case 0:
@@ -599,6 +666,10 @@ func (client *Client) Run(sink Sink) error {
 		if err != nil {
 			return err
 		}
+		client.mu.Lock()
+		client.messageStarted = time.Time{}
+		client.receivingPixels = false
+		client.mu.Unlock()
 	}
 }
 
@@ -632,12 +703,16 @@ func (client *Client) cutText(sink Sink) error {
 // update reads one FramebufferUpdate and then, if anyone is looking, asks for the
 // next.
 func (client *Client) update(sink Sink) error {
+	client.mu.Lock()
+	serial := client.fullSerial
+	client.mu.Unlock()
 	var header [3]byte
 	if _, err := io.ReadFull(client.r, header[:]); err != nil {
 		return err
 	}
 	count := int(binary.BigEndian.Uint16(header[1:]))
 	resized := false
+	painted := false
 	for index := 0; index < count; index++ {
 		var rect [12]byte
 		if _, err := io.ReadFull(client.r, rect[:]); err != nil {
@@ -714,6 +789,11 @@ func (client *Client) update(sink Sink) error {
 			return fmt.Errorf("%w: a %dx%d rectangle at %d,%d outside the %dx%d desktop", ErrProtocol, width, height, x, y, client.width, client.height)
 		}
 		var err error
+		if encoding != EncodingCopyRect && width > 0 && height > 0 {
+			client.mu.Lock()
+			client.receivingPixels = serial == client.fullSerial && client.needsFullPicture(x, y, width, height)
+			client.mu.Unlock()
+		}
 		switch encoding {
 		case EncodingRaw:
 			err = client.decodeRaw(sink, x, y, width, height)
@@ -728,11 +808,39 @@ func (client *Client) update(sink Sink) error {
 		default:
 			err = fmt.Errorf("%w: encoding %d", ErrProtocol, encoding)
 		}
+		client.mu.Lock()
+		// Only pixel decoding may extend a full-picture deadline. The next
+		// rectangle can be metadata (or never arrive at all), so it must not
+		// inherit the previous rectangle's slow-frame allowance.
+		client.receivingPixels = false
+		if err == nil && encoding != EncodingCopyRect && serial == client.fullSerial && !client.fullRequested.IsZero() {
+			client.coverFullPicture(x, y, width, height)
+		}
+		client.mu.Unlock()
 		if err != nil {
 			return err
 		}
+		// CopyRect only rearranges the old picture. A full repaint must
+		// contain new pixels, otherwise stale copies can mask a frozen stream.
+		painted = painted || (encoding != EncodingCopyRect && width > 0 && height > 0)
 	}
 	client.mu.Lock()
+	client.receivingPixels = false
+	if painted {
+		client.inputPending = time.Time{}
+		// A frame already being decoded before the full request went out
+		// cannot be its answer.
+		if serial == client.fullSerial && client.fullRemaining == 0 {
+			client.fullRequested = time.Time{}
+			client.fullSince = time.Time{}
+			client.fullProgress = time.Time{}
+		}
+	}
+	if resized {
+		// Request the new bounds, retaining the original recovery deadline
+		// until pixels arrive even if the server keeps sending layouts.
+		client.fullRequested = time.Time{}
+	}
 	active := client.active
 	client.waiting = !active
 	client.mu.Unlock()
@@ -745,11 +853,70 @@ func (client *Client) update(sink Sink) error {
 	return nil
 }
 
+// needsFullPicture reports whether a rectangle can still contribute missing
+// pixels, with mu held. Repeated traffic in an already covered area must not
+// inherit the slow-frame allowance and indefinitely postpone stream recovery.
+func (client *Client) needsFullPicture(x, y, width, height int) bool {
+	if client.fullRequested.IsZero() || client.fullRemaining == 0 {
+		return false
+	}
+	words := (client.fullWidth*client.fullHeight + 63) / 64
+	if client.width != client.fullWidth || client.height != client.fullHeight || len(client.fullCoverage) != words {
+		return true
+	}
+	for row := y; row < y+height; row++ {
+		for pixel, end := row*client.fullWidth+x, row*client.fullWidth+x+width; pixel < end; {
+			count := min(end-pixel, 64-pixel%64)
+			mask := (^uint64(0) >> (64 - count)) << (pixel % 64)
+			if mask&^client.fullCoverage[pixel/64] != 0 {
+				return true
+			}
+			pixel += count
+		}
+	}
+	return false
+}
+
+// coverFullPicture records unique, newly transmitted pixels, with mu held.
+// A full request must redraw its entire region. Cursor-sized updates, repeated
+// copies or the same dirty strip must not keep a stale desktop alive forever.
+// Most servers send one full rectangle, requiring no coverage allocation.
+func (client *Client) coverFullPicture(x, y, width, height int) {
+	if width <= 0 || height <= 0 || client.fullRemaining == 0 {
+		return
+	}
+	if x == 0 && y == 0 && width == client.fullWidth && height == client.fullHeight {
+		client.fullRemaining = 0
+		client.fullProgress = time.Now()
+		return
+	}
+	if x+width > client.fullWidth || y+height > client.fullHeight {
+		return // the layout changed; its next full request uses the new bounds
+	}
+	words := (client.fullWidth*client.fullHeight + 63) / 64
+	if len(client.fullCoverage) != words {
+		client.fullCoverage = make([]uint64, words)
+	}
+	before := client.fullRemaining
+	for row := y; row < y+height; row++ {
+		for pixel, end := row*client.fullWidth+x, row*client.fullWidth+x+width; pixel < end; {
+			count := min(end-pixel, 64-pixel%64)
+			mask := (^uint64(0) >> (64 - count)) << (pixel % 64)
+			word := &client.fullCoverage[pixel/64]
+			client.fullRemaining -= bits.OnesCount64(mask &^ *word)
+			*word |= mask
+			pixel += count
+		}
+	}
+	if client.fullRemaining < before {
+		client.fullProgress = time.Now()
+	}
+}
+
 // skipExtendedDesktopSize reads and discards the payload of an
 // ExtendedDesktopSize pseudo-rectangle (the RFB community extension, -308):
-// the server's size limits, then one entry per screen:
+// the screen count and padding, then one entry per screen:
 //
-//	U16 x-min, U16 y-min, U16 x-max, U16 y-max
 //	U8 number-of-screens, 3 bytes padding
 //	number-of-screens × { U32 id, U16 x, U16 y, U16 width, U16 height, U32 flags }
 //
@@ -757,11 +924,11 @@ func (client *Client) update(sink Sink) error {
 // which the caller has already read. A simple viewer only needs to skip the
 // layout.
 func (client *Client) skipExtendedDesktopSize() error {
-	var header [12]byte
+	var header [4]byte
 	if _, err := io.ReadFull(client.r, header[:]); err != nil {
 		return err
 	}
-	count := int(header[8])
+	count := int(header[0])
 	for range count {
 		var screen [16]byte
 		if _, err := io.ReadFull(client.r, screen[:]); err != nil {

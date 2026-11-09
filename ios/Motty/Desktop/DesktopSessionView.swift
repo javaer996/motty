@@ -1,6 +1,16 @@
 import SwiftUI
 import UIKit
 
+private struct DesktopChromeInsetsKey: PreferenceKey {
+    static let defaultValue = UIEdgeInsets.zero
+
+    static func reduce(value: inout UIEdgeInsets, nextValue: () -> UIEdgeInsets) {
+        let next = nextValue()
+        value = UIEdgeInsets(top: max(value.top, next.top), left: max(value.left, next.left),
+                             bottom: max(value.bottom, next.bottom), right: max(value.right, next.right))
+    }
+}
+
 /// One VNC or RDP tab. The picture lives in DesktopSurface; this view adds the
 /// connection states, the password and certificate questions, the key bar and
 /// the clipboard.
@@ -25,6 +35,7 @@ struct DesktopSessionView: View {
     /// tap brings back, so nothing covers the remote menubar or taskbar.
     @State private var chromeVisible = false
     @State private var showsChromeHint = false
+    @State private var chromeInsets = UIEdgeInsets.zero
 
     private var state: DesktopState? {
         if let desktop, let live = bridge.desktops[desktop.id] {
@@ -58,7 +69,14 @@ struct DesktopSessionView: View {
                             desktopID: state.id,
                             handle: surfaceHandle,
                             bridge: bridge,
-                            onToggleChrome: { toggleChrome() }
+                            viewportInsets: UIEdgeInsets(
+                                top: proxy.safeAreaInsets.top + chromeInsets.top,
+                                left: proxy.safeAreaInsets.leading + chromeInsets.left,
+                                bottom: proxy.safeAreaInsets.bottom + chromeInsets.bottom,
+                                right: proxy.safeAreaInsets.trailing + chromeInsets.right
+                            ),
+                            onToggleChrome: { toggleChrome() },
+                            onBeginScroll: { releaseHeldKeys() }
                         )
                         .ignoresSafeArea()
                     }
@@ -105,6 +123,7 @@ struct DesktopSessionView: View {
                         ), failed: true)
                     }
                 }
+                .onPreferenceChange(DesktopChromeInsetsKey.self) { chromeInsets = $0 }
                 .onAppear {
                     if viewSize == .zero { viewSize = proxy.size }
                 }
@@ -167,6 +186,7 @@ struct DesktopSessionView: View {
         }
         .onChange(of: connected) { _, value in
             guard value else {
+                heldKeys.removeAll()
                 chromeVisible = false
                 showsChromeHint = false
                 return
@@ -264,11 +284,13 @@ struct DesktopSessionView: View {
                 }
                 .padding(.vertical, 12)
                 .padding(.horizontal, 8)
+                .background(chromeMeasurement(.leading))
                 .background(.ultraThinMaterial, ignoresSafeAreaEdges: [.top, .bottom, .leading])
 
                 Spacer(minLength: 0)
 
                 verticalKeyBar
+                    .background(chromeMeasurement(.trailing))
                     .background(.bar, ignoresSafeAreaEdges: [.top, .bottom, .trailing])
             }
         } else {
@@ -284,17 +306,30 @@ struct DesktopSessionView: View {
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 8)
+                .background(chromeMeasurement(.top))
                 .background(.ultraThinMaterial, ignoresSafeAreaEdges: [.top, .leading, .trailing])
 
                 Spacer(minLength: 0)
 
                 horizontalKeyBar
+                    .background(chromeMeasurement(.bottom))
                     .background(.bar, ignoresSafeAreaEdges: [.bottom, .leading, .trailing])
             }
         }
     }
 
     private var isLandscape: Bool { viewSize.width > viewSize.height }
+
+    private func chromeMeasurement(_ edge: Edge) -> some View {
+        GeometryReader { geometry in
+            Color.clear.preference(key: DesktopChromeInsetsKey.self, value: UIEdgeInsets(
+                top: edge == .top ? geometry.size.height : 0,
+                left: edge == .leading ? geometry.size.width : 0,
+                bottom: edge == .bottom ? geometry.size.height : 0,
+                right: edge == .trailing ? geometry.size.width : 0
+            ))
+        }
+    }
 
     private var closeButton: some View {
         Button {

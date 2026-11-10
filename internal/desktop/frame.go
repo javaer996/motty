@@ -168,7 +168,18 @@ func (frame *Frame) Present(dst Presenter) bool {
 		dst.Resize(frame.width, frame.height)
 		frame.sized = false
 	}
-	for _, rect := range frame.dirty {
+	rects := frame.dirty
+	pixels := 0
+	for _, rect := range rects {
+		pixels += rect.Width * rect.Height
+	}
+	// Several overlapping refreshes may arrive before Present runs. They all
+	// read from the same latest backing image; copying more than one complete
+	// picture just lengthens the frame locks and amplifies memory traffic.
+	if pixels >= frame.width*frame.height {
+		rects = []Rect{{Width: frame.width, Height: frame.height}}
+	}
+	for _, rect := range rects {
 		dst.Update(rect.X, rect.Y, rect.Width, rect.Height, frame.pix[(rect.Y*frame.width+rect.X)*4:], frame.width*4)
 	}
 	frame.dirty = frame.dirty[:0]

@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"motty/internal/desktop"
@@ -927,7 +928,10 @@ const (
 // desktopFrame is the client-side copy of a remote picture. It mirrors what
 // Present sends and keeps the rectangles not yet handed to the front end.
 type desktopFrame struct {
-	mu            sync.Mutex
+	mu sync.Mutex
+	// Control/status paths read only dimensions and must never wait behind
+	// pixel transfers. Pack both values into one atomic snapshot.
+	dimensions    atomic.Uint64
 	width, height int
 	pix           []byte
 	dirty         []desktop.Rect
@@ -936,9 +940,8 @@ type desktopFrame struct {
 }
 
 func (f *desktopFrame) size() (int, int) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.width, f.height
+	dimensions := f.dimensions.Load()
+	return int(dimensions >> 32), int(uint32(dimensions))
 }
 
 func (f *desktopFrame) oversized() (int, int) {
@@ -964,6 +967,7 @@ func (f *desktopFrame) Resize(width, height int) {
 	}
 	f.width, f.height = width, height
 	f.pix = make([]byte, width*height*4)
+	f.dimensions.Store(uint64(width)<<32 | uint64(height))
 	f.dirty = append(f.dirty[:0], desktop.Rect{Width: width, Height: height})
 	f.version++
 }
@@ -1031,6 +1035,11 @@ func (f *desktopFrame) snapshot(sinceVersion uint64, dst []byte) int {
 	needed := desktopFrameHeader + len(rects)*desktopFrameRectLen
 	for _, rect := range rects {
 		needed += rect.Width * rect.Height * 4
+	}
+	fullBytes := desktopFrameHeader + desktopFrameRectLen + f.width*f.height*4
+	if needed >= fullBytes {
+		rects = []desktop.Rect{{Width: f.width, Height: f.height}}
+		needed = fullBytes
 	}
 	if len(dst) < needed {
 		return -needed

@@ -2049,6 +2049,22 @@
         }
       }
     },
+    "Desktop gestures": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "桌面手势"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "桌面手勢"
+          }
+        }
+      }
+    },
     "Destination host:port": {
       "localizations": {
         "zh-Hans": {
@@ -2189,6 +2205,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "下載並捨棄變更？"
+          }
+        }
+      }
+    },
+    "Drag a window by its title bar, or drag an icon: hold one finger, then move it. Lift to drop.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拖动窗口时按住标题栏，拖动图标时按住图标：单指稍停后移动，松手放下。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拖動視窗時按住標題列，拖動圖示時按住圖示：單指稍停後移動，放開即可放下。"
           }
         }
       }
@@ -3725,6 +3757,38 @@
           "stringUnit": {
             "state": "translated",
             "value": "Motty"
+          }
+        }
+      }
+    },
+    "Move the pointer: slide one finger. Tap to click; double-tap to open.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移动鼠标：单指滑动。轻点单击，连点两次打开。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移動滑鼠：單指滑動。輕點一下為單擊，連點兩下開啟。"
+          }
+        }
+      }
+    },
+    "Move the zoomed picture: drag with three fingers. Tap with three fingers to show or hide controls.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移动放大后的画面：三指拖动。三指轻点可显示或隐藏控制条。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移動放大後的畫面：三指拖動。三指輕點可顯示或隱藏控制列。"
           }
         }
       }
@@ -5985,6 +6049,22 @@
         }
       }
     },
+    "Scroll content: slide two fingers. Right-click: tap with two fingers.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "滚动内容：双指滑动。右键：双指轻点。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "捲動內容：雙指滑動。按右鍵：雙指輕點。"
+          }
+        }
+      }
+    },
     "Scrollback": {
       "localizations": {
         "zh-Hans": {
@@ -7821,6 +7901,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "你的變更尚未儲存。"
+          }
+        }
+      }
+    },
+    "Zoom the picture: pinch with two fingers.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "缩放画面：双指捏合或张开。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "縮放畫面：雙指捏合或張開。"
           }
         }
       }

@@ -1,6 +1,37 @@
 import SwiftUI
 import UIKit
 
+/// Only this worker owns the ABI buffer. A frame lock or a slow copy must
+/// never hold UIKit's main thread and prevent disconnect or login rendering.
+private final class DesktopFrameReader: @unchecked Sendable {
+    private let queue = DispatchQueue(label: "dev.motty.desktop.frames", qos: .userInitiated)
+    private var buffer = [UInt8](repeating: 0, count: 256 * 1024)
+    private static let maxFrameBytes = 40 + 5120 * 2880 * 4
+
+    func read(id: UInt32, version: UInt64, completion: @escaping @MainActor @Sendable (Int32, [UInt8]) -> Void) {
+        queue.async {
+            var result: Int32 = 0
+            // Updates can change size between the size query and retry. Bound
+            // retries instead of recursively chasing a growing dirty list.
+            for _ in 0..<2 {
+                result = self.buffer.withUnsafeMutableBytes {
+                    MottyDesktopFrame(id, version, $0.baseAddress, Int32($0.count))
+                }
+                guard result < -1 else { break }
+                let needed = -Int(result)
+                guard needed <= Self.maxFrameBytes else {
+                    result = 0
+                    break
+                }
+                self.buffer = [UInt8](repeating: 0, count: needed)
+            }
+            let bytes = result > 0 ? self.buffer : []
+            let count = result
+            DispatchQueue.main.async { completion(count, bytes) }
+        }
+    }
+}
+
 /// Lets the SwiftUI chrome reach into the UIKit surface (to show or hide the
 /// software keyboard, for example) without owning it.
 final class DesktopSurfaceHandle {
@@ -65,6 +96,10 @@ struct DesktopSurface: UIViewRepresentable {
         view.onBeginScroll = onBeginScroll
         handle.view = view
     }
+
+    static func dismantleUIView(_ view: DesktopSurfaceView, coordinator: ()) {
+        view.stop()
+    }
 }
 
 /// One remote desktop surface: draws BGRA frames, translates touches and keys,
@@ -80,6 +115,9 @@ final class DesktopSurfaceView: UIView, UIKeyInput, UIGestureRecognizerDelegate 
         }
     }
     var desktopID: UInt32 = 0 {
+        willSet {
+            if newValue != desktopID { releaseHeldButtons() }
+        }
         didSet {
             guard oldValue != desktopID else { return }
             resetPicture()
@@ -102,7 +140,9 @@ final class DesktopSurfaceView: UIView, UIKeyInput, UIGestureRecognizerDelegate 
     private var pictureWidth = 0
     private var pictureHeight = 0
     private var frameVersion: UInt64 = 0
-    private var frameBuffer = [UInt8](repeating: 0, count: 256 * 1024)
+    private var frameReader: DesktopFrameReader?
+    private var framePollInFlight = false
+    private var frameGeneration: UInt64 = 0
     private var displayLink: CADisplayLink?
     private var lastPoll: CFTimeInterval = 0
     private var zoom: CGFloat = 1
@@ -116,6 +156,7 @@ final class DesktopSurfaceView: UIView, UIKeyInput, UIGestureRecognizerDelegate 
 
     private var softwareKeyboard = false
     private var heldButtons: UInt8 = 0
+    private var dragPoint: (x: Int, y: Int)?
     private var scrollRemainder = CGPoint.zero
     private var scrollAnchor: (x: Int, y: Int)?
     private var scrollVelocity = CGPoint.zero
@@ -189,7 +230,11 @@ final class DesktopSurfaceView: UIView, UIKeyInput, UIGestureRecognizerDelegate 
     }
 
     func stop() {
+        frameGeneration &+= 1
+        frameReader = nil
+        framePollInFlight = false
         cancelRemoteScroll()
+        releaseHeldButtons()
         displayLink?.invalidate()
         displayLink = nil
         releaseHeldModifiers()
@@ -215,7 +260,11 @@ final class DesktopSurfaceView: UIView, UIKeyInput, UIGestureRecognizerDelegate 
     }
 
     private func resetPicture() {
+        frameGeneration &+= 1
+        frameReader = nil
+        framePollInFlight = false
         cancelRemoteScroll()
+        releaseHeldButtons()
         frameVersion = 0
         pixels = Data()
         pictureWidth = 0
@@ -226,20 +275,21 @@ final class DesktopSurfaceView: UIView, UIKeyInput, UIGestureRecognizerDelegate 
     }
 
     private func pollFrame() {
-        guard desktopID != 0 else { return }
-        let result = frameBuffer.withUnsafeMutableBytes { raw -> Int32 in
-            MottyDesktopFrame(desktopID, frameVersion, raw.baseAddress, Int32(raw.count))
-        }
-        if result > 0 {
-            applyFrame(frameBuffer, count: Int(result))
-        } else if result < -1 {
-            // The core names the buffer size it needs.
-            frameBuffer = [UInt8](repeating: 0, count: -Int(result))
-            pollFrame()
-        } else if result == -1 {
-            // The desktop is gone; stop asking.
-            displayLink?.invalidate()
-            displayLink = nil
+        guard desktopID != 0, !framePollInFlight else { return }
+        framePollInFlight = true
+        let generation = frameGeneration
+        let reader = frameReader ?? DesktopFrameReader()
+        frameReader = reader
+        reader.read(id: desktopID, version: frameVersion) { [weak self] result, bytes in
+            guard let self, self.frameGeneration == generation else { return }
+            self.framePollInFlight = false
+            if result > 0 {
+                self.applyFrame(bytes, count: Int(result))
+            } else if result == -1 {
+                // The desktop is gone; stop asking.
+                self.displayLink?.invalidate()
+                self.displayLink = nil
+            }
         }
     }
 
@@ -466,7 +516,8 @@ final class DesktopSurfaceView: UIView, UIKeyInput, UIGestureRecognizerDelegate 
         tap.require(toFail: doubleTap)
 
         let longPress = UILongPressGestureRecognizer(target: self, action: #selector(handleLongPress(_:)))
-        longPress.minimumPressDuration = 0.55
+        longPress.minimumPressDuration = 0.35
+        longPress.numberOfTouchesRequired = 1
         longPress.allowableMovement = 8
         addGestureRecognizer(longPress)
 
@@ -524,6 +575,12 @@ final class DesktopSurfaceView: UIView, UIKeyInput, UIGestureRecognizerDelegate 
             || (gestureRecognizer === zoomGesture && other === remoteScrollGesture)
     }
 
+    override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        // UIPinchGestureRecognizer can accept additional fingers. Reserve
+        // three-finger movement for the local viewport rather than zooming it.
+        gestureRecognizer !== zoomGesture || gestureRecognizer.numberOfTouches == 2
+    }
+
     @objc private func handleTap(_ gesture: UITapGestureRecognizer) {
         click(at: gesture.location(in: self), button: 1)
     }
@@ -543,20 +600,29 @@ final class DesktopSurfaceView: UIView, UIKeyInput, UIGestureRecognizerDelegate 
         case .began:
             cancelRemoteScroll()
             guard let (x, y) = pixelPoint(point) else { return }
-            heldButtons = 4
+            heldButtons = 1
+            dragPoint = (x, y)
             onPointer?(x, y, heldButtons)
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
         case .ended, .cancelled, .failed:
-            guard heldButtons != 0, let (x, y) = pixelPoint(point) else {
-                heldButtons = 0
-                return
+            if let (x, y) = pixelPointAtEdge(point), heldButtons != 0 {
+                dragPoint = (x, y)
             }
-            onPointer?(x, y, 0)
-            heldButtons = 0
+            releaseHeldButtons()
         default:
-            if heldButtons != 0 {
-                movePointer(to: point, buttons: heldButtons, atEdge: true)
+            if heldButtons != 0, let (x, y) = pixelPointAtEdge(point) {
+                dragPoint = (x, y)
+                onPointer?(x, y, heldButtons)
             }
         }
+    }
+
+    private func releaseHeldButtons() {
+        if heldButtons != 0, let point = dragPoint {
+            onPointer?(point.x, point.y, 0)
+        }
+        heldButtons = 0
+        dragPoint = nil
     }
 
     @objc private func handleDrag(_ gesture: UIPanGestureRecognizer) {
@@ -580,6 +646,7 @@ final class DesktopSurfaceView: UIView, UIKeyInput, UIGestureRecognizerDelegate 
         switch gesture.state {
         case .began:
             cancelRemoteScroll()
+            releaseHeldButtons()
             beginTwoFingerGesture(alongside: zoomGesture)
             let location = gesture.location(in: self)
             let initialTravel = gesture.translation(in: self)

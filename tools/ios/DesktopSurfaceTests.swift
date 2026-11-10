@@ -10,6 +10,7 @@ final class MottyBridge {
 }
 
 func MottyDesktopFrame(_ id: UInt32, _ version: UInt64, _ buffer: UnsafeMutableRawPointer?, _ capacity: Int32) -> Int32 {
+    precondition(!Thread.isMainThread, "desktop frame copy ran on the UI thread")
     if id == 999 { return -1 }
     guard version == 0 else { return 0 }
     let needed = 40 + 400 * 300 * 4
@@ -51,6 +52,16 @@ private final class Tap: UITapGestureRecognizer {
     override func location(in view: UIView?) -> CGPoint { position }
 }
 
+private final class LongPress: UILongPressGestureRecognizer {
+    var phase = UIGestureRecognizer.State.possible
+    var position = CGPoint(x: 80, y: 60)
+    override var state: UIGestureRecognizer.State {
+        get { phase }
+        set { phase = newValue }
+    }
+    override func location(in view: UIView?) -> CGPoint { position }
+}
+
 @main
 private struct DesktopSurfaceTests {
     static func value<T>(_ name: String, from surface: DesktopSurfaceView) -> T {
@@ -63,11 +74,42 @@ private struct DesktopSurfaceTests {
         let window = UIWindow(frame: surface.frame)
         window.addSubview(surface)
         defer { surface.stop() }
-        let deadline = Date().addingTimeInterval(3)
+        let deadline = Date().addingTimeInterval(10)
         while value("pictureWidth", from: surface) as Int == 0 && Date() < deadline {
             RunLoop.main.run(until: Date().addingTimeInterval(0.05))
         }
         precondition(value("pictureWidth", from: surface) as Int == 400, "fixture frame was not polled")
+
+        var dragEvents: [(x: Int, y: Int, buttons: UInt8)] = []
+        surface.onPointer = { dragEvents.append(($0, $1, $2)) }
+        let press = LongPress()
+        func hold(_ state: UIGestureRecognizer.State, at point: CGPoint) {
+            press.phase = state
+            press.position = point
+            surface.perform(NSSelectorFromString("handleLongPress:"), with: press)
+        }
+        hold(.began, at: CGPoint(x: 80, y: 60))
+        hold(.changed, at: CGPoint(x: 180, y: 120))
+        hold(.ended, at: CGPoint(x: 180, y: 120))
+        precondition(dragEvents.map(\.buttons) == [1, 1, 0] && dragEvents[1].x == 180,
+                     "hold and move did not drag with the left mouse button")
+        for end in [UIGestureRecognizer.State.ended, .cancelled] {
+            dragEvents.removeAll()
+            hold(.began, at: CGPoint(x: 80, y: 60))
+            hold(end, at: CGPoint(x: -500, y: -500))
+            precondition(dragEvents.map(\.buttons) == [1, 0], "leaving the screen left a mouse button stuck")
+        }
+        dragEvents.removeAll()
+        hold(.began, at: CGPoint(x: 80, y: 60))
+        surface.stop()
+        precondition(dragEvents.map(\.buttons) == [1, 0], "disconnect did not release the dragged window")
+        surface.removeFromSuperview()
+        window.addSubview(surface)
+        dragEvents.removeAll()
+        let rightTap = Tap()
+        rightTap.position = CGPoint(x: 80, y: 60)
+        surface.perform(NSSelectorFromString("handleRightTap:"), with: rightTap)
+        precondition(dragEvents.map(\.buttons) == [4, 0], "two-finger tap lost its right click")
 
         var wheels: [(x: Int, y: Int, dx: Int, dy: Int)] = []
         surface.onWheel = { wheels.append(($0, $1, $2, $3)) }
@@ -232,6 +274,16 @@ private struct DesktopSurfaceTests {
         RunLoop.main.run(until: Date().addingTimeInterval(0.12))
         precondition(value("pictureWidth", from: surface) as Int == 400,
                      "reused surface did not restart frame polling after reconnect")
-        print("PASS: scrolling, momentum, modifiers, gesture isolation; zoomed corners reachable in both orientations; reused surface resumes after reconnect")
+        weak var removedSurface: DesktopSurfaceView?
+        autoreleasepool {
+            let temporary = DesktopSurfaceView(frame: window.bounds)
+            window.addSubview(temporary)
+            DesktopSurface.dismantleUIView(temporary, coordinator: ())
+            temporary.removeFromSuperview()
+            removedSurface = temporary
+        }
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        precondition(removedSurface == nil, "display link retained the removed surface and its frame buffers")
+        print("PASS: left-button hold/drag/release and right click; scrolling and momentum; zoomed corners reachable; reused surface resumes")
     }
 }

@@ -8,6 +8,8 @@ private final class CoreStub: @unchecked Sendable {
     let lock = NSLock()
     let wheelStarted = DispatchSemaphore(value: 0)
     let releaseWheel = DispatchSemaphore(value: 0)
+    let releaseFrame = DispatchSemaphore(value: 0)
+    var frameCalls = 0
     var calls: [(String, UInt32)] = []
     var events: [Data] = []
     var blockWheel = true
@@ -53,6 +55,26 @@ func MottyCall(_ method: UnsafeMutablePointer<CChar>, _ params: UnsafeMutablePoi
 }
 
 func MottyFree(_ pointer: UnsafeMutablePointer<CChar>) { free(pointer) }
+
+func MottyDesktopFrame(_ id: UInt32, _ version: UInt64, _ buffer: UnsafeMutableRawPointer?, _ capacity: Int32) -> Int32 {
+    precondition(!Thread.isMainThread, "frame copying blocked UIKit's main thread")
+    guard id == 4 || id == 5, version == 0 else { return 0 }
+    let stub = CoreStub.shared
+    if id == 4 {
+        stub.lock.lock()
+        stub.frameCalls += 1
+        stub.lock.unlock()
+        precondition(stub.releaseFrame.wait(timeout: .now() + 8) == .success, "UI could not release a stalled frame")
+    }
+    let needed = 40 + 40 * 30 * 4
+    guard let buffer, Int(capacity) >= needed else { return -Int32(needed) }
+    buffer.initializeMemory(as: UInt8.self, repeating: 0, count: needed)
+    buffer.storeBytes(of: UInt64(id), as: UInt64.self)
+    for (offset, value) in [(8, 40), (12, 30), (16, 1), (32, 40), (36, 30)] {
+        buffer.storeBytes(of: Int32(value), toByteOffset: offset, as: Int32.self)
+    }
+    return Int32(needed)
+}
 
 func MottyPollEvent(_ buffer: UnsafeMutableRawPointer?, _ capacity: Int32) -> Int32 {
     let stub = CoreStub.shared
@@ -152,5 +174,42 @@ private struct DesktopBridgeTests {
         precondition(answered && refresh, "login answer or manual refresh was blocked by input")
         precondition(transitions == [1, 0], "button press/release was dropped as expired motion")
         print("PASS: blocked input cannot hide login/refresh/reopen; stale input and late events discarded; button press/release preserved")
+
+        // Exercise the real surface and bridge together. Input separation did
+        // not previously protect the main thread from a blocked frame copy.
+        let surface = DesktopSurfaceView(frame: CGRect(x: 0, y: 0, width: 400, height: 300))
+        surface.desktopID = 4
+        let window = UIWindow(frame: surface.frame)
+        window.addSubview(surface)
+        until("frame worker never started") {
+            stub.lock.lock()
+            defer { stub.lock.unlock() }
+            return stub.frameCalls == 1
+        }
+        stub.lock.lock()
+        stub.events.append(try! JSONSerialization.data(withJSONObject: ["type": "desktop.state", "desktop": stub.desktop(4)]))
+        stub.events.append(try! JSONSerialization.data(withJSONObject: [
+            "type": "desktop.prompt", "desktopId": 4, "kind": "password", "attempt": 1
+        ]))
+        stub.lock.unlock()
+        bridge.pollEvents()
+        until("stalled frame prevented the login UI state from appearing") { bridge.desktopPrompts[4] != nil }
+        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+        stub.lock.lock()
+        let frameCalls = stub.frameCalls
+        stub.lock.unlock()
+        precondition(frameCalls == 1, "display ticks queued multiple blocked frame reads")
+        bridge.closeDesktop(4)
+        until("stalled frame prevented disconnect") { bridge.desktops[4]?.state == "closed" }
+        surface.desktopID = 5
+        until("new desktop waited for the old blocked frame") {
+            Mirror(reflecting: surface).children.first { $0.label == "frameVersion" }?.value as? UInt64 == 5
+        }
+        stub.releaseFrame.signal()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        precondition(Mirror(reflecting: surface).children.first { $0.label == "frameVersion" }?.value as? UInt64 == 5,
+                     "late old frame overwrote the reconnected desktop")
+        surface.stop()
+        print("PASS: stalled frame keeps login/disconnect responsive; one frame in flight; old frame cannot overwrite reconnected desktop")
     }
 }

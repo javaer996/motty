@@ -99,6 +99,88 @@ func TestDesktopSessionBeingClosedIsNotLive(t *testing.T) {
 	}
 }
 
+func TestDesktopSnapshotsNeverExceedOneFullPicture(t *testing.T) {
+	frame := &desktopFrame{}
+	const width, height = 320, 200
+	frame.Resize(width, height)
+	buffer := make([]byte, desktopFrameHeader+desktopFrameRectLen+width*height*4)
+	frame.snapshot(0, buffer)
+	version := frame.version
+	pixels := bytes.Repeat([]byte{7, 8, 9, 0}, width*height)
+	// Scrolling or several full refreshes can outpace the UI. All rectangles
+	// refer to the latest backing pixels, so duplicating them buys no detail.
+	for range desktopDirtyLimit - 1 {
+		frame.Update(0, 0, width, height, pixels, width*4)
+	}
+	written := frame.snapshot(version, buffer)
+	if written != len(buffer) {
+		t.Fatalf("overlapping updates need %d bytes; one complete picture needs only %d", written, len(buffer))
+	}
+	if count := binary.LittleEndian.Uint32(buffer[16:]); count != 1 || !bytes.Equal(buffer[40:], pixels) {
+		t.Fatal("bounded snapshot lost the latest complete picture")
+	}
+}
+
+func TestDesktopFrameLockCannotBlockStatusCloseReopenOrLogin(t *testing.T) {
+	server := startVNCTestServer(t, true)
+	app, err := Start(Config{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Close()
+	host := saveDesktopTestHost(t, app, server.port, ProtocolVNC)
+	rpc := func(method, params string) testEnvelope {
+		t.Helper()
+		done := make(chan []byte, 1)
+		go func() { done <- app.Call(method, json.RawMessage(params)) }()
+		select {
+		case raw := <-done:
+			var envelope testEnvelope
+			if err := json.Unmarshal(raw, &envelope); err != nil || !envelope.OK {
+				t.Fatalf("%s failed: %s", method, raw)
+			}
+			return envelope
+		case <-time.After(time.Second):
+			t.Fatalf("%s waited for a stalled frame copy", method)
+			return testEnvelope{}
+		}
+	}
+	open := func() uint32 {
+		t.Helper()
+		envelope := rpc("desktop.open", `{"hostId":`+quoteJSON(host.ID)+`}`)
+		var result struct {
+			Desktop desktopState `json:"desktop"`
+		}
+		if err := json.Unmarshal(envelope.Result, &result); err != nil {
+			t.Fatal(err)
+		}
+		return result.Desktop.ID
+	}
+	id := open()
+	waitDesktopState(t, app, id, desktopPassword)
+	idParams := `{"id":` + strconv.Itoa(int(id)) + `}`
+	rpc("desktop.answer", `{"id":`+strconv.Itoa(int(id))+`,"kind":"password","value":"secret","save":false}`)
+	waitDesktopState(t, app, id, desktopConnected)
+	d, _ := app.desktops.get(id)
+	d.frame.Resize(4, 2)
+	d.frame.mu.Lock()
+	defer d.frame.mu.Unlock()
+	// Hold the actual Go pixel lock for the entire sequence, including the
+	// manager's existing-session lookup and the next handshake's prompt.
+	rpc("desktop.status", idParams)
+	if same := open(); same != id {
+		t.Fatal("opening a live session did not reuse it")
+	}
+	rpc("desktop.close", idParams)
+	reopened := open()
+	if reopened == id {
+		t.Fatal("reopen returned the closed connection")
+	}
+	waitDesktopState(t, app, reopened, desktopPassword)
+	rpc("desktop.answer", `{"id":`+strconv.Itoa(int(reopened))+`,"kind":"password","value":"secret","save":false}`)
+	waitDesktopState(t, app, reopened, desktopConnected)
+}
+
 func TestHostProtocolDefaults(t *testing.T) {
 	vnc := Host{Label: "desk", Address: "example.com", Protocol: "VNC"}.Normalized()
 	if vnc.Protocol != ProtocolVNC || vnc.Port != 5900 {

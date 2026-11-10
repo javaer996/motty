@@ -23,6 +23,7 @@ xcrun --sdk iphonesimulator swiftc \
     "$ROOT/ios/Motty/Models/Models.swift" \
     "$ROOT/ios/Motty/App/AppLanguage.swift" \
     "$ROOT/ios/Motty/Bridge/MottyBridge.swift" \
+    "$ROOT/ios/Motty/Desktop/DesktopUIView.swift" \
     "$ROOT/tools/ios/DesktopBridgeTests.swift" \
     -o "$DESKTOP_TEST_DIR/desktop-bridge-tests"
 xcrun simctl spawn "$simulator" "$DESKTOP_TEST_DIR/desktop-bridge-tests"

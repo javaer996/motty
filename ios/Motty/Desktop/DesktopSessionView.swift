@@ -29,6 +29,7 @@ struct DesktopSessionView: View {
     @State private var viewSize = CGSize.zero
     @State private var resizeTask: Task<Void, Never>?
     @State private var showingClipboard = false
+    @State private var showingGestureHelp = false
     @State private var localClipboardText = ""
     @State private var surfaceHandle = DesktopSurfaceHandle()
     /// The picture goes edge to edge; the controls are an overlay a three-finger
@@ -167,6 +168,25 @@ struct DesktopSessionView: View {
         .sheet(isPresented: $showingClipboard) {
             clipboardSheet
         }
+        .sheet(isPresented: $showingGestureHelp) {
+            NavigationStack {
+                List {
+                    Text("Drag a window by its title bar, or drag an icon: hold one finger, then move it. Lift to drop.")
+                    Text("Move the pointer: slide one finger. Tap to click; double-tap to open.")
+                    Text("Scroll content: slide two fingers. Right-click: tap with two fingers.")
+                    Text("Zoom the picture: pinch with two fingers.")
+                    Text("Move the zoomed picture: drag with three fingers. Tap with three fingers to show or hide controls.")
+                }
+                .navigationTitle("Desktop gestures")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") { showingGestureHelp = false }
+                    }
+                }
+            }
+            .preferredColorScheme(.dark)
+        }
         .task {
             await start()
         }
@@ -279,6 +299,7 @@ struct DesktopSessionView: View {
                 VStack(spacing: 10) {
                     closeButton
                     refreshButton
+                    gestureHelpButton
                     hideChromeButton
                     Spacer(minLength: 0)
                 }
@@ -302,6 +323,7 @@ struct DesktopSessionView: View {
                     }
                     Spacer()
                     refreshButton
+                    gestureHelpButton
                     hideChromeButton
                 }
                 .padding(.horizontal, 14)
@@ -360,11 +382,20 @@ struct DesktopSessionView: View {
         .accessibilityLabel("Hide controls")
     }
 
+    private var gestureHelpButton: some View {
+        Button {
+            showingGestureHelp = true
+        } label: {
+            chromeIcon("questionmark")
+        }
+        .accessibilityLabel("Desktop gestures")
+    }
+
     private func chromeIcon(_ name: String) -> some View {
         Image(systemName: name)
             .font(.system(size: 15, weight: .semibold))
             .foregroundStyle(.white)
-            .frame(width: 32, height: 32)
+            .frame(width: 44, height: 44)
             .background(.black.opacity(0.45), in: Circle())
     }
 

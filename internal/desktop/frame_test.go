@@ -97,6 +97,28 @@ func TestManySmallUpdatesCollapseIntoOneBoundingRectangle(t *testing.T) {
 	}
 }
 
+func TestPresentBoundsOverlappingUpdatesToOnePicture(t *testing.T) {
+	frame := NewFrame(nil)
+	frame.Resize(320, 200)
+	var shown mirror
+	frame.Present(&shown)
+	shown.updates = nil
+	for index := range maxDirty - 1 {
+		frame.Fill(0, 0, 320, 200, byte(index), 2, 3)
+	}
+	frame.Present(&shown)
+	pixels := 0
+	for _, rect := range shown.updates {
+		pixels += rect.Width * rect.Height
+	}
+	if pixels > 320*200 {
+		t.Fatalf("copied %d pixels for a %d-pixel picture", pixels, 320*200)
+	}
+	if !bytes.Equal(frame.pix, shown.pix) {
+		t.Fatal("coalescing overlapping updates lost pixels")
+	}
+}
+
 func TestResizeKeepsWhatTheOldPictureHadInsideTheNewBounds(t *testing.T) {
 	notified := 0
 	frame := NewFrame(func() { notified++ })

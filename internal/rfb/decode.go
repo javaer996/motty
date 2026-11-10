@@ -203,12 +203,12 @@ func (client *Client) decodeZRLE(sink Sink, x, y, width, height int) error {
 	if limit := int64(width)*int64(height)*5 + maxZRLEExtra; length > limit {
 		return fmt.Errorf("%w: %d compressed bytes for a %dx%d rectangle", ErrProtocol, length, width, height)
 	}
+	if length == 0 && width > 0 && height > 0 {
+		return fmt.Errorf("%w: empty ZRLE data for a %dx%d rectangle", ErrProtocol, width, height)
+	}
 	state := &client.zrle
 	state.source.r, state.source.remaining = client.r, int(length)
 	if state.inflate == nil {
-		if length == 0 {
-			return nil
-		}
 		reader, err := zlib.NewReader(&state.source)
 		if err != nil {
 			return fmt.Errorf("%w: ZRLE stream: %v", ErrProtocol, err)

@@ -204,8 +204,12 @@ func Connect(conn net.Conn, config Config) (*Client, error) {
 	return client, nil
 }
 
-// Size is the framebuffer's size at the time of the handshake.
-func (client *Client) Size() (width, height int) { return client.width, client.height }
+// Size is the framebuffer's current size.
+func (client *Client) Size() (width, height int) {
+	client.mu.Lock()
+	defer client.mu.Unlock()
+	return client.width, client.height
+}
 
 func (client *Client) handshake(config Config) error {
 	var banner [12]byte
@@ -413,8 +417,8 @@ func (client *Client) init(config Config) error {
 }
 
 func checkSize(width, height int) error {
-	if width > MaxDimension || height > MaxDimension || width*height > MaxPixels {
-		return fmt.Errorf("%w: a %dx%d desktop is larger than the %d pixels accepted", ErrProtocol, width, height, MaxPixels)
+	if width <= 0 || height <= 0 || width > MaxDimension || height > MaxDimension || width*height > MaxPixels {
+		return fmt.Errorf("%w: a %dx%d desktop is outside the accepted size limits", ErrProtocol, width, height)
 	}
 	return nil
 }

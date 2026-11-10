@@ -364,6 +364,18 @@ func TestRefusesWhatIsNotRFBAndOversizeDesktops(t *testing.T) {
 		s.read(1)
 		s.write(u32(0))
 		s.read(1)
+		s.write(serverInit(0, 480, "empty"))
+	})
+	if !errors.Is(err, ErrProtocol) {
+		t.Fatalf("err = %v, want a refusal of the empty desktop", err)
+	}
+	_, err = connect(t, Config{}, func(s *server) {
+		s.write([]byte("RFB 003.008\n"))
+		s.read(12)
+		s.write([]byte{1, 1})
+		s.read(1)
+		s.write(u32(0))
+		s.read(1)
 		header := serverInit(10, 10, "")
 		copy(header[20:], u32(1<<30))
 		s.write(header)
@@ -692,6 +704,49 @@ func TestDesktopSizeClipboardBellAndRequestScheduling(t *testing.T) {
 	}
 }
 
+func TestSizeCanBeReadWhileServerResizesDesktop(t *testing.T) {
+	clientSide, serverSide := pair(t)
+	s := &server{t: t, conn: serverSide}
+	go s.handshake("008", 1, "", 20, 10)
+	client, err := Connect(clientSide, Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := run(client, &canvas{})
+	s.readRequest()
+
+	stop := make(chan struct{})
+	pollDone := make(chan struct{})
+	go func() {
+		defer close(pollDone)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				client.Size()
+			}
+		}
+	}()
+	for change := range 24 {
+		width, height := 21+change, 11+change%2
+		s.write(update(rect(0, 0, width, height, encodingDesktopSize)))
+		incremental, requestedWidth, requestedHeight := s.readRequest()
+		if incremental || requestedWidth != width || requestedHeight != height {
+			t.Fatalf("resize %d: request incremental=%v %dx%d, want full %dx%d", change, incremental, requestedWidth, requestedHeight, width, height)
+		}
+	}
+	close(stop)
+	<-pollDone
+	s.finish()
+	if err := wait(t, done); err == nil {
+		t.Fatal("Run returned nil after the server hung up")
+	}
+	if width, height := client.Size(); width != 44 || height != 12 {
+		t.Fatalf("final size = %dx%d, want 44x12", width, height)
+	}
+}
+
 func TestClipboardBellAndInactiveClientAsksForNothing(t *testing.T) {
 	sink := &canvas{}
 	clientSide, serverSide := pair(t)
@@ -799,6 +854,7 @@ func TestMaliciousServerCannotMakeTheClientAllocateOrLoop(t *testing.T) {
 		"RRE subrect outside":    update(rect(0, 0, 4, 4, EncodingRRE, append(append(u32(1), pixels(2, 0, 0, 0)...), u16(3, 3, 5, 5)...)...)),
 		"hextile subrect":        update(rect(0, 0, 16, 16, EncodingHextile, append([]byte{hextileSubrects, 1}, 0xf0, 0xff)...)),
 		"ZRLE length":            update(rect(0, 0, 4, 4, EncodingZRLE, u32(1<<31)...)),
+		"ZRLE empty data":        update(rect(0, 0, 4, 4, EncodingZRLE, u32(0)...)),
 		"ZRLE not zlib":          update(rect(0, 0, 4, 4, EncodingZRLE, append(u32(8), 1, 2, 3, 4, 5, 6, 7, 8)...)),
 		"cut text length":        {3, 0, 0, 0, 0xff, 0xff, 0xff, 0xff},
 		"unknown message":        {99},

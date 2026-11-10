@@ -484,6 +484,19 @@ func (c *Client) Connect() error {
 		return err
 	}
 
+	// Servers may send drawing updates while capabilities/finalization are
+	// still in progress. Prepare the display first: allocating it afterwards
+	// discards that first desktop (and any bitmap cache entries it uses).
+	c.framebufMu.Lock()
+	if c.framebuf == nil {
+		c.framebuf = NewFramebuffer(int(c.opts.Width), int(c.opts.Height))
+	} else {
+		c.framebuf.Resize(int(c.opts.Width), int(c.opts.Height))
+	}
+	c.framebufMu.Unlock()
+	c.bitmapCache.Init([orders.NumBitmapCaches]int{600, 600, 2048, 4096, 2048})
+	c.desktopSaveBuf = new(orders.DesktopSaveCache)
+
 	// Step 8: Capabilities Exchange
 	c.setState(StateCapabilities)
 	if err := c.handleCapabilitiesExchange(); err != nil {
@@ -497,11 +510,6 @@ func (c *Client) Connect() error {
 		c.Close()
 		return err
 	}
-
-	// Initialize framebuffer and bitmap cache
-	c.framebuf = NewFramebuffer(int(c.opts.Width), int(c.opts.Height))
-	c.bitmapCache.Init([orders.NumBitmapCaches]int{600, 600, 2048, 4096, 2048})
-	c.desktopSaveBuf = new(orders.DesktopSaveCache)
 
 	c.log.LogAttrs(context.Background(), slog.LevelInfo, "connection established", slog.String("state", c.State().String()))
 	c.setState(StateConnected)
@@ -1905,6 +1913,10 @@ func (c *Client) sendDataPDU(pduType2 uint8, payload []byte) error {
 //  5. Read Font Map response
 func (c *Client) handleFinalization() error {
 	c.log.LogAttrs(context.Background(), slog.LevelInfo, "connection finalization")
+	// Slow-path desktop updates may arrive here before the handshake replies.
+	// Keep a generous bound while allowing a full maximum-size desktop to be
+	// split across TPKT packets.
+	const maxFinalizationPDUs = 4096
 
 	// Phase 1: Send 3 PDUs
 	if err := c.sendDataPDU(pdu.PDUType2Synchronize, pdu.EncodeSynchronize(c.userChannelID)); err != nil {
@@ -1927,7 +1939,7 @@ func (c *Client) handleFinalization() error {
 	)
 	var received uint8
 
-	for i := 0; i < 10; i++ {
+	for i := 0; i < maxFinalizationPDUs; i++ {
 		channelID, userData, err := c.readDecryptedPDU()
 		if err != nil {
 			return fmt.Errorf("%w: reading server finalization PDU: %v", ErrFinalizationFailed, err)
@@ -1963,6 +1975,10 @@ func (c *Client) handleFinalization() error {
 		case pdu.PDUType2Control:
 			c.logPdu.LogAttrs(context.Background(), slog.LevelDebug, "received server Control")
 			received |= gotControl
+		case pdu.PDUType2Update:
+			c.handleUpdatePDU(sdPayload)
+		case pdu.PDUType2Pointer:
+			c.handleSlowPathPointer(sdPayload)
 		case pdu.PDUType2SetErrorInfo:
 			errCode := uint32(0)
 			if len(sdPayload) >= 4 {
@@ -1995,7 +2011,7 @@ func (c *Client) handleFinalization() error {
 	c.log.LogAttrs(context.Background(), slog.LevelDebug, "sent input sync + font list, reading font map")
 
 	// Phase 5: Read Font Map response
-	for i := 0; i < 10; i++ {
+	for i := 0; i < maxFinalizationPDUs; i++ {
 		channelID, userData, err := c.readDecryptedPDU()
 		if err != nil {
 			return fmt.Errorf("%w: reading font map: %v", ErrFinalizationFailed, err)
@@ -2029,6 +2045,10 @@ func (c *Client) handleFinalization() error {
 			c.logPdu.LogAttrs(context.Background(), slog.LevelDebug, "received server Font Map")
 			c.log.LogAttrs(context.Background(), slog.LevelInfo, "finalization complete")
 			return nil
+		case pdu.PDUType2Update:
+			c.handleUpdatePDU(sdPayload)
+		case pdu.PDUType2Pointer:
+			c.handleSlowPathPointer(sdPayload)
 		case pdu.PDUType2SetErrorInfo:
 			errCode := uint32(0)
 			if len(sdPayload) >= 4 {
@@ -2227,7 +2247,9 @@ func (c *Client) resetForReconnect() {
 	c.orderState = orders.DecoderState{}
 	c.glyphCache = orders.GlyphCache{}
 	c.pointerCache = [128]*PointerUpdate{}
+	c.framebufMu.Lock()
 	c.framebuf = nil
+	c.framebufMu.Unlock()
 	c.bitmapCache.Reset()
 	c.brushCache.Reset()
 	c.scrBltBuf = nil
@@ -2574,9 +2596,6 @@ func (c *Client) handleReactivation() {
 		c.framebuf.Resize(width, height)
 	}
 	c.framebufMu.Unlock()
-	if fn := c.loadOnResize(); fn != nil {
-		fn(width, height)
-	}
 
 	// Read the new Demand Active from the server
 	if err := c.handleCapabilitiesExchange(); err != nil {
@@ -2589,6 +2608,11 @@ func (c *Client) handleReactivation() {
 		c.log.LogAttrs(context.Background(), slog.LevelError, "reactivation: finalization failed", slog.Any("err", err))
 		c.handleDisconnect(err)
 		return
+	}
+	// OnResize may request a full repaint. The server can ignore that request
+	// while deactivated, so notify only after it has sent the final Font Map.
+	if fn := c.loadOnResize(); fn != nil {
+		fn(width, height)
 	}
 
 	c.log.LogAttrs(context.Background(), slog.LevelInfo, "reactivation complete", slog.Int("width", width), slog.Int("height", height))
